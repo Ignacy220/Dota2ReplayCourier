@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dota2ReplayCourier Coordinator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      /* Main Dota Theme (Global / Neutral Baseline — "Obsidian & Ancient Energy") */
+      --bg-canvas: #0D1014;
+      --bg-surface: #15191F;
+      --bg-elevated: #1F252D;
+      --bg-recessed: #0A0D10;
+      --border-subtle: #2B333E;
+      --text-primary: #ECEAE4;
+      --text-secondary: #96A0AB;
+      --text-muted: #5B6470;
+      --accent-brand: #BF2E1A;
+      --accent-gold: #C8A252;
+      --accent-gold-light: #E6C87E;
+
+      /* Radiant & Dire tokens for the VS Split Bar */
+      --rad-bg-surface: #111B16;
+      --rad-bg-elevated: #18261F;
+      --rad-border: #243A2F;
+      --rad-primary: #75B832;
+      --rad-primary-muted: #4A731D;
+      --rad-text-accent: #94D94E;
+      --rad-secondary: #D4B978;
+      --rad-highlight: #3CD099;
+      --rad-text-primary: #EDF2EE;
+      --rad-text-secondary: #93A89C;
+
+      --dire-bg-surface: #1A1113;
+      --dire-bg-elevated: #24171A;
+      --dire-border: #3B2125;
+      --dire-primary: #D93B2B;
+      --dire-primary-muted: #7D2018;
+      --dire-text-accent: #F46253;
+      --dire-secondary: #E87A24;
+      --dire-text-primary: #F3EAE9;
+      --dire-text-secondary: #AD9597;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg-canvas);
+      background-image: radial-gradient(circle at 50% 0%, rgba(200, 162, 82, 0.05) 0%, transparent 55%);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      caret-color: var(--accent-gold);
+    }
+
+    h1, h2, h3, .dota-heading {
+      font-family: 'Cinzel', Georgia, serif;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-primary);
+      text-wrap: balance;
+    }
+
+    p {
+      text-wrap: pretty;
+    }
+
+    .mono-num {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, #181D24 0%, #13171D 100%);
+      border: 1px solid var(--border-subtle);
+      border-radius: 3px;
+      padding: 16px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 20px rgba(0, 0, 0, 0.42);
+    }
+
+    .recessed-box {
+      background-color: var(--bg-recessed);
+      border: 1px solid var(--border-subtle);
+      border-radius: 3px;
+      padding: 12px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+    }
+
+    .btn-primary {
+      background: linear-gradient(180deg, #CC3520 0%, #A92614 100%);
+      color: var(--text-primary);
+      border: 1px solid rgba(230, 200, 126, 0.28);
+      border-radius: 2px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 2px 8px rgba(0, 0, 0, 0.45);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      transition: filter 140ms ease, border-color 140ms ease;
+    }
+    .btn-primary:hover:not(:disabled) {
+      filter: brightness(1.1);
+      border-color: var(--accent-gold-light);
+    }
+    .btn-primary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: var(--bg-elevated);
+      color: var(--accent-gold);
+      border: 1px solid rgba(200, 162, 82, 0.45);
+      border-radius: 2px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      font-weight: 500;
+      transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background-color: #262E38;
+      color: var(--accent-gold-light);
+      border-color: var(--accent-gold-light);
+    }
+
+    .input-field {
+      background-color: var(--bg-recessed);
+      border: 1px solid var(--border-subtle);
+      border-radius: 2px;
+      color: var(--text-primary);
+      padding: 7px 10px;
+      font-size: 13px;
+      width: 100%;
+      transition: border-color 140ms ease;
+    }
+    .input-field:focus {
+      outline: none;
+      border-color: var(--accent-gold);
+    }
+
+    :focus-visible {
+      outline: 1px solid var(--accent-gold);
+      outline-offset: 2px;
+    }
+
+    input[type="checkbox"] {
+      accent-color: var(--accent-gold);
+    }
+
+    /* VS Split Bar Styling */
+    .vs-split-shell {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: linear-gradient(180deg, #16231C 0%, #0E1612 100%);
+      border: 1px solid var(--border-subtle);
+      border-top: 1px solid #2E4A3B;
+      border-radius: 3px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 22px rgba(0, 0, 0, 0.48);
+    }
+    .vs-pane-radiant {
+      position: relative;
+      z-index: 1;
+      background: transparent;
+      color: var(--rad-text-primary);
+      padding: 14px 28px 14px 20px;
+    }
+    .vs-pane-dire {
+      position: relative;
+      z-index: 1;
+      background: transparent;
+      color: var(--dire-text-primary);
+      padding: 14px 20px 14px 32px;
+    }
+    .vs-pane-dire::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: -48px;
+      background: linear-gradient(180deg, #140D0E 0%, #211214 100%);
+      border-top: 1px solid #3B2125;
+      border-left: 2px solid #C8A252;
+      transform: skewX(-18deg);
+      transform-origin: center;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .vs-pane-dire > * {
+      position: relative;
+      z-index: 1;
+    }
+    .vs-bar-track {
+      position: relative;
+      height: 8px;
+      background-color: #1A1113;
+      border: 1px solid var(--border-subtle);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .vs-bar-radiant {
+      height: 100%;
+      background: linear-gradient(90deg, #4A731D 0%, #75B832 70%, #3CD099 100%);
+      transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .vs-bar-dire {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, #E87A24 0%, #D93B2B 100%);
+      transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .vs-bar-slash {
+      position: absolute;
+      top: -3px;
+      bottom: -3px;
+      width: 3px;
+      background-color: var(--accent-gold-light);
+      transform: translateX(-50%) skewX(-20deg);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+      transition: left 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    ::selection {
+      background: rgba(200, 162, 82, 0.28);
+      color: var(--text-primary);
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg-canvas);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-subtle);
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--accent-gold);
+    }
+
+    .tour-highlight {
+      position: relative;
+      z-index: 9010 !important;
+      box-shadow: 0 0 0 2px #C8A252, 0 0 28px rgba(200, 162, 82, 0.35) !important;
+      border-color: #C8A252 !important;
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-3.5 py-2.5 rounded-sm bg-[#1F252D] border border-[#C8A252] text-[#ECEAE4] text-xs font-medium shadow-lg"></div>
+
+  <!-- Interactive First-Startup Tutorial Overlay -->
+  <div id="tourBackdrop" style="z-index: 9000;" class="hidden fixed inset-0 bg-black/75 transition-opacity"></div>
+  <div id="tourCard" style="z-index: 9020;" class="hidden fixed w-[92vw] max-w-md panel p-5 shadow-2xl border border-[#C8A252]">
+    <div class="flex items-center justify-between gap-2 border-b border-[#2B333E] pb-2.5 mb-3">
+      <div class="flex items-center gap-2">
+        <span id="tourStepBadge" class="px-2 py-0.5 rounded-sm bg-[#C8A252]/15 text-[#E6C87E] border border-[#C8A252]/40 text-[11px] mono-num font-semibold">Step 1 / 5</span>
+        <h3 id="tourTitle" class="dota-heading text-sm font-semibold text-[#ECEAE4]">Welcome</h3>
+      </div>
+      <button onclick="finishTour()" class="text-xs text-[#96A0AB] hover:text-[#ECEAE4] px-1.5 py-0.5">Skip</button>
+    </div>
+    <p id="tourBody" class="text-xs text-[#ECEAE4]/90 leading-relaxed mb-4"></p>
+    <div class="flex items-center justify-between gap-2 pt-2 border-t border-[#2B333E]">
+      <button id="tourPrevBtn" onclick="prevTourStep()" class="px-3 py-1.5 btn-secondary text-xs">Back</button>
+      <div class="flex items-center gap-2">
+        <button id="tourNextBtn" onclick="nextTourStep()" class="px-3.5 py-1.5 btn-primary text-xs">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="max-w-7xl w-full mx-auto p-6 space-y-5">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <span class="dota-heading text-sm font-semibold tracking-wider text-[#E6C87E]">Dota2ReplayCourier Coordinator</span>
+      </div>
+      <button
+        type="button"
+        onclick="startTour()"
+        title="Open Configuration Tutorial"
+        class="px-2.5 py-1 rounded-sm border border-[#2B333E] bg-[#15191F] hover:border-[#C8A252] text-xs text-[#E6C87E] flex items-center gap-1.5 transition"
+      >
+        <span class="w-4 h-4 rounded-full border border-[#C8A252]/60 flex items-center justify-center text-[10px] font-bold">?</span>
+        <span>Tutorial</span>
+      </button>
+    </div>
+
+    <!-- Top KPI Metrics Strip (Includes Harvester Running/Paused Switch) -->
+    <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="panel p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs text-[#96A0AB]">Harvester</span>
+          <button
+            id="harvesterToggleBtn"
+            type="button"
+            role="switch"
+            aria-checked="true"
+            onclick="toggleHarvester()"
+            class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-sm border border-[#C8A252]/50 bg-[#C8A252] transition-colors focus:outline-none"
+          >
+            <span id="harvesterToggleThumb" class="pointer-events-none inline-block h-3.5 w-3.5 translate-x-4 rounded-sm bg-[#0D1014] transition-transform"></span>
+          </button>
+        </div>
+        <div class="mt-2 flex items-center gap-2">
+          <span id="harvesterDot" class="w-2 h-2 rounded-sm bg-[#E6C87E]"></span>
+          <span id="harvesterStateText" class="text-lg font-semibold text-[#ECEAE4]">Running</span>
+        </div>
+      </div>
+
+      <div class="panel p-4">
+        <div class="text-xs text-[#96A0AB]">Stored Match Files</div>
+        <div class="mt-1.5 flex items-baseline justify-between gap-2">
+          <span id="kpiParsedTotal" class="text-2xl font-semibold text-[#ECEAE4] mono-num">0</span>
+          <span class="text-xs text-[#C8A252] mono-num">Today: <span id="kpiParsedToday">0</span></span>
+        </div>
+      </div>
+
+      <div class="panel p-4">
+        <div class="text-xs text-[#96A0AB]">Active Leases</div>
+        <div id="kpiActiveLeases" class="text-2xl font-semibold text-[#ECEAE4] mono-num mt-1.5">0</div>
+      </div>
+
+      <div class="panel p-4">
+        <div class="text-xs text-[#96A0AB]">Queued Jobs</div>
+        <div id="kpiTotalQueued" class="text-2xl font-semibold text-[#ECEAE4] mono-num mt-1.5">0</div>
+      </div>
+
+      <div class="panel p-4">
+        <div class="text-xs text-[#96A0AB]">CDN Delay Buffer</div>
+        <div id="kpiDelayedCount" class="text-2xl font-semibold text-[#ECEAE4] mono-num mt-1.5">0</div>
+      </div>
+
+      <div class="panel p-4">
+        <div class="text-xs text-[#96A0AB]">Filter Pass Ratio</div>
+        <div id="kpiFilterRate" class="text-xl font-semibold text-[#ECEAE4] mono-num mt-2">0 / 0</div>
+      </div>
+    </section>
+
+    <!-- Radiant vs. Dire Ancient War Standings (Matchup / VS Split) -->
+    <section class="space-y-2">
+      <div class="vs-split-shell">
+        <!-- Left Panel: Radiant Tokens ("Verdant Sanctuary") -->
+        <div class="vs-pane-radiant flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded border border-[#243A2F] bg-[#18261F] flex items-center justify-center shrink-0 overflow-hidden p-0.5">
+              <img src="/pictures/radiant_logo.png" alt="Radiant" class="w-full h-full object-contain" />
+            </div>
+            <div>
+              <div class="dota-heading text-xs font-semibold text-[#D4B978]">The Radiant</div>
+            </div>
+          </div>
+          <div class="text-right mono-num">
+            <div class="text-lg font-semibold text-[#94D94E]"><span id="vsRadXP">0</span> XP</div>
+            <div id="vsRadPct" class="text-[11px] text-[#93A89C]">50.0%</div>
+          </div>
+        </div>
+
+        <!-- Right Panel: Dire Tokens ("Obsidian Forge") -->
+        <div class="vs-pane-dire flex items-center justify-between gap-4">
+          <div class="mono-num">
+            <div class="text-lg font-semibold text-[#F46253]"><span id="vsDireXP">0</span> XP</div>
+            <div id="vsDirePct" class="text-[11px] text-[#AD9597]">50.0%</div>
+          </div>
+          <div class="flex items-center gap-3 text-right">
+            <div>
+              <div class="dota-heading text-xs font-semibold text-[#E87A24]">The Dire</div>
+            </div>
+            <div class="w-8 h-8 border border-[#3B2125] bg-[#24171A] flex items-center justify-center shrink-0 overflow-hidden p-0.5" style="clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);">
+              <img src="/pictures/dire_logo.png" alt="Dire" class="w-full h-full object-contain" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tug-of-War Progress Track -->
+      <div class="vs-bar-track">
+        <div id="vsBarRadiant" class="vs-bar-radiant" style="width: 50%"></div>
+        <div id="vsBarDire" class="vs-bar-dire" style="width: 50%"></div>
+        <div id="vsBarSlash" class="vs-bar-slash" style="left: 50%"></div>
+      </div>
+    </section>
+
+    <!-- Regional Queues -->
+    <section class="panel p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold">Regional Queues</h2>
+        <span class="text-xs text-[#5B6470] mono-num">3s refresh</span>
+      </div>
+      <div id="regionCards" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3"></div>
+    </section>
+
+    <!-- Restructured Full-Width Match Ingestion Filters -->
+    <section id="tour-filters" class="panel p-5 space-y-5">
+      <div class="flex items-center justify-between border-b border-[#2B333E] pb-3">
+        <h2 class="text-sm font-semibold">Match Ingestion Filters</h2>
+      </div>
+
+      <!-- Stacked Vertical Match Ingestion Filters -->
+      <div id="filterSectionsContainer" class="flex flex-col gap-5">
+        <!-- Lobby Types -->
+        <div id="lobbySection" class="space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-medium text-[#96A0AB]">Lobby Types</span>
+            <span class="text-[#5B6470] mono-num">Dropped: <span id="statDropLobby">0</span></span>
+          </div>
+          <div id="lobbyTypeList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 recessed-box p-3"></div>
+        </div>
+
+        <!-- Game Modes -->
+        <div id="modeSection" class="space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-medium text-[#96A0AB]">Game Modes</span>
+            <span class="text-[#5B6470] mono-num">Dropped: <span id="statDropMode">0</span></span>
+          </div>
+          <div id="gameModeList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 recessed-box p-3"></div>
+        </div>
+
+        <!-- Target Regions & Match Constraints -->
+        <div id="constraintsSection" class="space-y-4">
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-[#96A0AB]">Target Regions</span>
+              <span class="text-[#5B6470] mono-num">Dropped: <span id="statDropRegion">0</span></span>
+            </div>
+            <div id="regionFilterList" class="grid grid-cols-3 sm:grid-cols-6 gap-2 recessed-box p-3"></div>
+          </div>
+
+          <div id="matchConstraintsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center recessed-box p-3.5">
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label for="fltMinDuration" class="text-xs text-[#96A0AB]">Min Match Duration (s)</label>
+                <span class="text-[11px] text-[#5B6470] mono-num">Dropped: <span id="statDropDuration">0</span></span>
+              </div>
+              <input type="number" id="fltMinDuration" class="input-field mono-num" />
+            </div>
+
+            <label class="flex items-center justify-between gap-3 cursor-pointer pt-1">
+              <div class="flex items-center gap-2.5">
+                <input type="checkbox" id="fltRequire10Humans" class="w-4 h-4 rounded-sm shrink-0" />
+                <span class="text-xs font-medium text-[#ECEAE4]">Require 10 human players</span>
+              </div>
+              <span class="text-[11px] text-[#5B6470] mono-num shrink-0">Dropped: <span id="statDropHumans">0</span></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Collapsible Engine Timing + Save Action -->
+      <div class="pt-3 border-t border-[#2B333E] space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onclick="toggleEngineTiming()"
+            class="inline-flex items-center gap-2 text-xs font-medium text-[#96A0AB] hover:text-[#ECEAE4] transition"
+          >
+            <svg id="engineTimingChevron" class="w-3.5 h-3.5 text-[#C8A252] transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            <span>Harvester Timing &amp; Queue Limits</span>
+          </button>
+
+          <button onclick="saveFilters()" class="px-4 py-2 btn-primary text-xs">
+            Save Filter Rules
+          </button>
+        </div>
+
+        <div id="engineTimingPanel" class="hidden grid grid-cols-1 sm:grid-cols-3 gap-4 recessed-box p-3.5">
+          <div>
+            <label for="fltCDNDelay" class="block text-xs text-[#96A0AB] mb-1">CDN Delay (s)</label>
+            <input type="number" id="fltCDNDelay" class="input-field mono-num" />
+          </div>
+          <div>
+            <label for="fltPollInterval" class="block text-xs text-[#96A0AB] mb-1">Poll Interval (ms)</label>
+            <input type="number" id="fltPollInterval" class="input-field mono-num" />
+          </div>
+          <div>
+            <label for="fltMaxQueue" class="block text-xs text-[#96A0AB] mb-1">Max Queue Size</label>
+            <input type="number" id="fltMaxQueue" class="input-field mono-num" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Server-Wide Replay Parser Management (Collapsed by default) -->
+    <section id="tour-parser" class="panel">
+      <button
+        type="button"
+        id="parserToggleBtn"
+        aria-expanded="false"
+        onclick="toggleParserSection()"
+        class="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-[#1F252D] transition"
+      >
+        <span class="dota-heading text-sm font-semibold">Active Replay Parser</span>
+        <svg id="parserChevron" class="w-4 h-4 text-[#C8A252] transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      <div id="parserBody" class="hidden px-5 pb-5 pt-3 border-t border-[#2B333E] space-y-4">
+        <p class="text-xs text-[#96A0AB]">
+          Workers sync automatically on every heartbeat. Stale parses submitted under an older parser are dismissed and re-queued.
+        </p>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <!-- Configured Parser Selector -->
+          <div class="space-y-2.5">
+            <div class="text-xs font-medium text-[#96A0AB]">Available Parsers</div>
+            <div id="parserListBox" class="space-y-2">
+              <div class="p-3 rounded-sm border border-[#C8A252]/50 bg-[#1F252D] flex items-center justify-between gap-2 text-xs">
+                <div class="font-semibold text-[#ECEAE4]">default <span class="text-[#96A0AB] font-normal">(Built-in Rich Manta)</span></div>
+                <span class="px-2 py-1 rounded-sm bg-[#C8A252]/15 text-[#E6C87E] border border-[#C8A252]/35 mono-num text-[11px]">Active</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Upload Custom Parser -->
+          <div class="recessed-box p-4 space-y-3">
+            <div>
+              <div class="text-xs font-semibold text-[#ECEAE4]">Upload Custom Parser</div>
+              <div class="text-[11px] text-[#5B6470] mt-0.5">
+                Accepts <span class="mono-num text-[#96A0AB]">.wasm</span>, <span class="mono-num text-[#96A0AB]">.go</span> (compiled to WASI), <span class="mono-num text-[#96A0AB]">.lua</span> (bundled to WASI), <span class="mono-num text-[#96A0AB]">.py</span> (bundled with CPython WASI), or <span class="mono-num text-[#96A0AB]">.js</span> (sandboxed JS VM). Receives raw decompressed <span class="mono-num text-[#96A0AB]">.dem</span> on stdin, writes JSON to stdout.
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label for="customParserName" class="block text-[#96A0AB] mb-1">Parser Name</label>
+                <input id="customParserName" type="text" placeholder="e.g. ward-extractor" class="input-field mono-num" />
+              </div>
+              <div>
+                <label for="customParserFile" class="block text-[#96A0AB] mb-1">Script / .wasm File</label>
+                <input id="customParserFile" type="file" accept=".wasm,.go,.lua,.py,.js" class="input-field text-xs file:mr-2 file:py-1 file:px-2 file:rounded-sm file:border file:border-[#C8A252]/40 file:bg-[#1F252D] file:text-[#E6C87E] file:text-xs" />
+              </div>
+            </div>
+            <div id="parserUploadStatus" class="hidden text-xs mono-num px-3 py-2 rounded-sm border border-[#2B333E] bg-[#15191F] text-[#ECEAE4] whitespace-pre-wrap max-h-28 overflow-y-auto"></div>
+            <div class="flex items-center justify-between pt-1">
+              <label class="flex items-center gap-2 text-xs text-[#96A0AB] cursor-pointer">
+                <input id="customParserActivate" type="checkbox" checked class="w-4 h-4 rounded-sm" />
+                <span>Activate immediately for all workers</span>
+              </label>
+              <button id="uploadParserBtn" onclick="uploadCustomParser()" class="px-3.5 py-2 btn-primary text-xs">
+                Upload &amp; Package
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- API Keys (Steam Discovery + Replay Salt Resolution) -->
+    <section id="tour-apikeys" class="panel p-5 space-y-3">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#2B333E] pb-3">
+        <div>
+          <h2 class="dota-heading text-sm font-semibold">API Keys</h2>
+          <p class="text-xs text-[#96A0AB] mt-0.5">Steam Web API key powers match discovery; STRATZ (Priority 1) then OpenDota (Priority 2) resolve replay salts.</p>
+        </div>
+        <div id="serverApiKeyStatus" class="text-xs text-[#96A0AB] mono-num">Steam: Fallback · STRATZ: Not set · OpenDota: Free tier</div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-7 gap-3 items-end">
+        <div class="lg:col-span-2">
+          <label for="serverSteamKey" class="block text-xs text-[#96A0AB] mb-1">Steam Web API Key (Discovery)</label>
+          <input type="password" id="serverSteamKey" placeholder="Optional (blank = OpenDota publicMatches)" class="input-field mono-num" />
+        </div>
+        <div class="lg:col-span-2">
+          <label for="serverStratzKey" class="block text-xs text-[#96A0AB] mb-1">STRATZ API Key (Salt Priority 1)</label>
+          <input type="password" id="serverStratzKey" placeholder="Bearer token (used first when set)" class="input-field mono-num" />
+        </div>
+        <div class="lg:col-span-2">
+          <label for="serverOpenDotaKey" class="block text-xs text-[#96A0AB] mb-1">OpenDota API Key (Salt Priority 2)</label>
+          <input type="password" id="serverOpenDotaKey" placeholder="Optional (blank = free tier)" class="input-field mono-num" />
+        </div>
+        <div>
+          <button onclick="saveServerApiKeys()" class="w-full px-4 py-2 btn-primary text-xs">
+            Save API Keys
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Collapsible Integrations & Storage Panel -->
+    <section id="tour-storage" class="panel">
+      <div class="px-5 py-3 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          id="integrationsToggleBtn"
+          aria-expanded="false"
+          onclick="toggleIntegrations()"
+          class="flex-1 flex items-center justify-between text-left py-0.5 hover:text-[#E6C87E] transition"
+        >
+          <span class="dota-heading text-sm font-semibold">Integrations &amp; Storage</span>
+          <svg id="integrationsChevron" class="w-4 h-4 text-[#C8A252] transition-transform duration-150 mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <button id="btnToggleFileStorage" type="button" onclick="toggleFileStorage()" class="px-3 py-1.5 rounded-sm text-xs font-medium border border-[#2B333E] bg-[#1F252D] text-[#E6C87E] hover:border-[#C8A252] shrink-0">
+          Disable File Saving
+        </button>
+      </div>
+
+      <div id="integrationsBody" class="hidden px-5 pb-5 pt-3 border-t border-[#2B333E] space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <p class="text-xs text-[#96A0AB]">
+            Parsed matches are saved to <span id="storageDirPath" class="mono-num text-[#ECEAE4]">data/matches/{match_id}.json</span> and can be forwarded to any external program.
+          </p>
+          <div class="text-xs text-[#96A0AB] mono-num shrink-0">
+            Webhook Delivered: <span id="whDelivered" class="text-[#E6C87E]">0</span> · Failed: <span id="whFailed" class="text-[#F46253]">0</span> · Stream Clients: <span id="streamSubs" class="text-[#ECEAE4]">0</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
+          <div class="lg:col-span-2">
+            <label for="sinkWebhookUrl" class="block text-xs text-[#96A0AB] mb-1">Outbound Webhook URL (Coordinator POSTs each parsed match JSON here)</label>
+            <input type="text" id="sinkWebhookUrl" placeholder="http://localhost:9000/ingest" class="input-field mono-num" />
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="sinkWebhookEnabled" class="w-4 h-4 rounded-sm" />
+              <span class="text-xs font-medium text-[#ECEAE4]">Enable Webhook</span>
+            </label>
+            <button onclick="saveSinkConfig()" class="px-4 py-2 btn-primary text-xs">
+              Save Forwarder
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div class="recessed-box p-3">
+            <div class="text-[#96A0AB] font-medium">1. Local File Per Match</div>
+            <div class="mono-num text-[#ECEAE4] mt-1">data/matches/&lt;match_id&gt;.json</div>
+          </div>
+          <div class="recessed-box p-3">
+            <div class="text-[#96A0AB] font-medium">2. Live SSE Event Stream</div>
+            <div class="mono-num text-[#ECEAE4] mt-1">GET /api/v1/stream/matches</div>
+          </div>
+          <div class="recessed-box p-3">
+            <div class="text-[#96A0AB] font-medium">3. Direct REST Lookup</div>
+            <div class="mono-num text-[#ECEAE4] mt-1">GET /api/v1/matches/&lt;match_id&gt;</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Active Leases Table -->
+    <section class="panel p-5">
+      <h2 class="text-sm font-semibold mb-3">Active Worker Leases</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="text-[#96A0AB] border-b border-[#2B333E]">
+            <tr>
+              <th class="py-2 pr-4 font-medium">Batch ID</th>
+              <th class="py-2 pr-4 font-medium">Worker ID</th>
+              <th class="py-2 pr-4 font-medium">IP Address</th>
+              <th class="py-2 pr-4 font-medium">Region</th>
+              <th class="py-2 pr-4 font-medium">Completed</th>
+              <th class="py-2 pr-4 font-medium">Expires</th>
+            </tr>
+          </thead>
+          <tbody id="leasesTableBody" class="divide-y divide-[#2B333E] text-[#ECEAE4] mono-num">
+            <tr><td colspan="6" class="py-4 text-center text-[#5B6470]">No active leases</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Recent Submissions -->
+    <section class="panel p-5">
+      <h2 class="text-sm font-semibold mb-3">Recent Parser Submissions</h2>
+      <div id="resultsContainer" class="space-y-3">
+        <div class="text-xs text-[#5B6470] text-center py-6">No submissions recorded yet.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const ALL_REGIONS = ["EU", "NA", "SEA", "SA", "CN", "OCE"];
+    let catalogInitialized = false;
+    let sinkInitialized = false;
+    let apiKeysInitialized = false;
+    let fileStorageEnabled = true;
+    let harvesterEnabled = true;
+
+    function showToast(msg) {
+      const el = document.getElementById("toast");
+      el.textContent = msg;
+      el.classList.remove("hidden");
+      setTimeout(() => el.classList.add("hidden"), 3000);
+    }
+
+    function toggleParserSection() {
+      const body = document.getElementById("parserBody");
+      const chevron = document.getElementById("parserChevron");
+      const btn = document.getElementById("parserToggleBtn");
+      const isHidden = body.classList.contains("hidden");
+      if (isHidden) {
+        body.classList.remove("hidden");
+        chevron.style.transform = "rotate(180deg)";
+        btn.setAttribute("aria-expanded", "true");
+      } else {
+        body.classList.add("hidden");
+        chevron.style.transform = "rotate(0deg)";
+        btn.setAttribute("aria-expanded", "false");
+      }
+    }
+
+    function toggleIntegrations() {
+      const body = document.getElementById("integrationsBody");
+      const chevron = document.getElementById("integrationsChevron");
+      const btn = document.getElementById("integrationsToggleBtn");
+      const isHidden = body.classList.contains("hidden");
+      if (isHidden) {
+        body.classList.remove("hidden");
+        chevron.style.transform = "rotate(180deg)";
+        btn.setAttribute("aria-expanded", "true");
+      } else {
+        body.classList.add("hidden");
+        chevron.style.transform = "rotate(0deg)";
+        btn.setAttribute("aria-expanded", "false");
+      }
+    }
+
+    function toggleEngineTiming() {
+      const panel = document.getElementById("engineTimingPanel");
+      const chevron = document.getElementById("engineTimingChevron");
+      const isHidden = panel.classList.contains("hidden");
+      if (isHidden) {
+        panel.classList.remove("hidden");
+        chevron.style.transform = "rotate(90deg)";
+      } else {
+        panel.classList.add("hidden");
+        chevron.style.transform = "rotate(0deg)";
+      }
+    }
+
+    function renderHarvesterSwitch(enabled) {
+      harvesterEnabled = !!enabled;
+      const btn = document.getElementById("harvesterToggleBtn");
+      const thumb = document.getElementById("harvesterToggleThumb");
+      const dot = document.getElementById("harvesterDot");
+      const text = document.getElementById("harvesterStateText");
+
+      btn.setAttribute("aria-checked", harvesterEnabled ? "true" : "false");
+      if (harvesterEnabled) {
+        btn.className = "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-sm border border-[#C8A252]/50 bg-[#C8A252] transition-colors focus:outline-none";
+        thumb.className = "pointer-events-none inline-block h-3.5 w-3.5 translate-x-4 rounded-sm bg-[#0D1014] transition-transform";
+        dot.className = "w-2 h-2 rounded-sm bg-[#E6C87E]";
+        text.textContent = "Running";
+      } else {
+        btn.className = "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-sm border border-[#2B333E] bg-[#1F252D] transition-colors focus:outline-none";
+        thumb.className = "pointer-events-none inline-block h-3.5 w-3.5 translate-x-0.5 rounded-sm bg-[#96A0AB] transition-transform";
+        dot.className = "w-2 h-2 rounded-sm bg-[#5B6470]";
+        text.textContent = "Paused";
+      }
+    }
+
+    async function toggleHarvester() {
+      renderHarvesterSwitch(!harvesterEnabled);
+      await saveFilters(harvesterEnabled ? "Harvester started" : "Harvester paused");
+    }
+
+    function renderFactionSplit(factions) {
+      const radXP = Number(factions && factions.radiant ? factions.radiant.xp : 0);
+      const direXP = Number(factions && factions.dire ? factions.dire.xp : 0);
+      const total = radXP + direXP;
+      const radPct = total > 0 ? (radXP / total) * 100 : 50;
+      const direPct = 100 - radPct;
+      const visualRad = total > 0 ? Math.min(88, Math.max(12, radPct)) : 50;
+
+      document.getElementById("vsRadXP").textContent = radXP.toLocaleString();
+      document.getElementById("vsDireXP").textContent = direXP.toLocaleString();
+      document.getElementById("vsRadPct").textContent = radPct.toFixed(1) + "%";
+      document.getElementById("vsDirePct").textContent = direPct.toFixed(1) + "%";
+      document.getElementById("vsBarRadiant").style.width = visualRad + "%";
+      document.getElementById("vsBarDire").style.width = (100 - visualRad) + "%";
+      document.getElementById("vsBarSlash").style.left = visualRad + "%";
+    }
+
+    async function fetchOverview() {
+      try {
+        const res = await fetch("/api/v1/admin/overview");
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById("kpiParsedTotal").textContent = data.stats.global_parsed_total.toLocaleString();
+        document.getElementById("kpiParsedToday").textContent = data.stats.global_parsed_today.toLocaleString();
+        document.getElementById("kpiActiveLeases").textContent = data.stats.active_leases;
+        document.getElementById("kpiDelayedCount").textContent = data.stats.delayed_queue_count;
+
+        renderFactionSplit(data.stats.factions);
+
+        let totalQ = 0;
+        const depths = data.stats.queue_depth_by_region || {};
+        Object.values(depths).forEach(v => totalQ += v);
+        document.getElementById("kpiTotalQueued").textContent = totalQ.toLocaleString();
+
+        const fs = data.filter_stats || {};
+        document.getElementById("kpiFilterRate").textContent = `${fs.total_accepted || 0} / ${fs.total_scanned || 0}`;
+        document.getElementById("statDropLobby").textContent = fs.dropped_by_lobby || 0;
+        document.getElementById("statDropMode").textContent = fs.dropped_by_game_mode || 0;
+        document.getElementById("statDropRegion").textContent = fs.dropped_by_region || 0;
+        document.getElementById("statDropHumans").textContent = fs.dropped_by_humans || 0;
+        document.getElementById("statDropDuration").textContent = fs.dropped_by_duration || 0;
+
+        if (data.sink_stats) {
+          const sk = data.sink_stats;
+          document.getElementById("storageDirPath").textContent = `${sk.storage_dir}/{match_id}.json`;
+          document.getElementById("whDelivered").textContent = sk.webhook_delivered || 0;
+          document.getElementById("whFailed").textContent = sk.webhook_failed || 0;
+          document.getElementById("streamSubs").textContent = sk.stream_subscribers || 0;
+
+          fileStorageEnabled = sk.file_storage_enabled !== false;
+          renderFileStorageButton();
+
+          if (!sinkInitialized) {
+            document.getElementById("sinkWebhookUrl").value = sk.webhook_url || "";
+            document.getElementById("sinkWebhookEnabled").checked = !!sk.webhook_enabled;
+            sinkInitialized = true;
+          }
+        }
+
+        if (data.api_keys) {
+          const ak = data.api_keys;
+          const steamLabel = ak.steam_configured ? "Configured" : "OpenDota fallback";
+          const stratzLabel = ak.stratz_configured ? "Configured (Priority 1)" : "Not set";
+          const odLabel = ak.opendota_configured ? "API Key active" : "Free tier";
+          document.getElementById("serverApiKeyStatus").textContent = `Steam: ${steamLabel} · STRATZ: ${stratzLabel} · OpenDota: ${odLabel}`;
+          if (!apiKeysInitialized) {
+            document.getElementById("serverSteamKey").value = ak.steam_api_key || "";
+            document.getElementById("serverStratzKey").value = ak.stratz_api_key || "";
+            document.getElementById("serverOpenDotaKey").value = ak.opendota_api_key || "";
+            apiKeysInitialized = true;
+          }
+        }
+
+        if (!tutorialChecked) {
+          tutorialChecked = true;
+          if (data.tutorial_completed === false) {
+            startTour();
+          }
+        }
+
+        const regOrder = ["EU", "NA", "SEA", "SA", "CN", "OCE", "GLOBAL"];
+        document.getElementById("regionCards").innerHTML = regOrder.map(r => `
+          <div class="recessed-box p-3">
+            <div class="text-xs font-medium text-[#96A0AB]">${r}</div>
+            <div class="text-xl font-semibold text-[#ECEAE4] mono-num mt-1">${depths[r] || 0}</div>
+          </div>
+        `).join("");
+
+        if (data.active_parser) {
+          renderParserManager(data.active_parser, data.custom_parsers || []);
+        }
+
+        if (!catalogInitialized && data.filter_config) {
+          renderHarvesterSwitch(data.filter_config.enabled);
+          renderFilterSelector(data.filter_config, data.lobby_catalog || [], data.game_mode_catalog || []);
+          catalogInitialized = true;
+        }
+
+        const leases = data.active_leases || [];
+        const tbody = document.getElementById("leasesTableBody");
+        if (leases.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-[#5B6470]">No active leases</td></tr>`;
+        } else {
+          tbody.innerHTML = leases.map(l => {
+            const total = Object.keys(l.jobs || {}).length;
+            const done = Object.keys(l.completed_ids || {}).length;
+            return `
+              <tr>
+                <td class="py-2 pr-4 text-[#E6C87E]">${l.batch_id.slice(0, 12)}</td>
+                <td class="py-2 pr-4">${escapeHtml(l.worker_id || "anon")}</td>
+                <td class="py-2 pr-4">${escapeHtml(l.worker_ip || "-")}</td>
+                <td class="py-2 pr-4">${escapeHtml(l.region)}</td>
+                <td class="py-2 pr-4">${done} / ${total}</td>
+                <td class="py-2 pr-4 text-[#96A0AB]">${new Date(l.expires_at).toLocaleTimeString()}</td>
+              </tr>
+            `;
+          }).join("");
+        }
+
+        const results = data.recent_results || [];
+        const rc = document.getElementById("resultsContainer");
+        if (results.length > 0) {
+          rc.innerHTML = results.slice(0, 10).map(r => {
+            let prettyPayload = "";
+            try {
+              prettyPayload = JSON.stringify(typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload, null, 2);
+            } catch (e) {
+              prettyPayload = String(r.payload);
+            }
+            return `
+              <div class="recessed-box p-3.5">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs">
+                  <div class="flex items-center gap-2.5 mono-num">
+                    <a href="/api/v1/matches/${r.match_id}" target="_blank" class="font-semibold text-[#ECEAE4] hover:text-[#E6C87E] underline underline-offset-4">Match #${r.match_id}.json</a>
+                    <span class="text-[#96A0AB]">${escapeHtml(r.region)} · Cluster ${r.cluster}</span>
+                  </div>
+                  <div class="text-[#5B6470] mono-num">
+                    ${escapeHtml(r.worker_id || "worker")} · ${new Date(r.created_at).toLocaleTimeString()}
+                  </div>
+                </div>
+                <pre class="text-xs mono-num bg-[#0D1014] text-[#ECEAE4] p-3 rounded-sm border border-[#2B333E] overflow-x-auto max-h-44">${escapeHtml(prettyPayload)}</pre>
+              </div>
+            `;
+          }).join("");
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function renderParserManager(active, customList) {
+      const badge = document.getElementById("activeParserBadge");
+      const isDefault = !active || active.mode === "default";
+      if (badge) {
+        if (isDefault) {
+          badge.textContent = `default (rev ${active ? active.revision : 1})`;
+          badge.className = "px-2.5 py-1 rounded-sm bg-[#1F252D] text-[#E6C87E] border border-[#C8A252]/40 font-medium";
+        } else {
+          const shortHash = active.sha256 ? active.sha256.slice(0, 8) : "";
+          badge.textContent = `${active.reported_name} [${active.kind.toUpperCase()} · ${shortHash}]`;
+          badge.className = "px-2.5 py-1 rounded-sm bg-[#1F252D] text-[#E6C87E] border border-[#C8A252] font-medium";
+        }
+      }
+
+      const items = [];
+      items.push(`
+        <div class="p-3 rounded-sm border ${isDefault ? 'border-[#C8A252] bg-[#1F252D]' : 'border-[#2B333E] bg-[#0A0D10]'} flex items-center justify-between gap-2 text-xs">
+          <div class="font-semibold text-[#ECEAE4] min-w-0">default <span class="text-[#96A0AB] font-normal">(Built-in Rich Manta)</span></div>
+          ${isDefault
+            ? '<span class="px-2 py-1 rounded-sm bg-[#C8A252]/15 text-[#E6C87E] border border-[#C8A252]/35 mono-num text-[11px] shrink-0">Active</span>'
+            : '<button onclick="activateParser(\'default\', \'default\')" class="px-2.5 py-1 btn-secondary text-[11px] shrink-0">Activate</button>'
+          }
+        </div>
+      `);
+
+      const sorted = [...customList].sort((a, b) => a.name.localeCompare(b.name));
+      for (const p of sorted) {
+        const isActive = !isDefault && active.id === p.id;
+        const sizeKB = Math.max(1, Math.round((p.artifact_size || 0) / 1024));
+        const shortSHA = p.sha256 ? p.sha256.slice(0, 8) : "";
+        items.push(`
+          <div class="p-3 rounded-sm border ${isActive ? 'border-[#C8A252] bg-[#1F252D]' : 'border-[#2B333E] bg-[#0A0D10]'} flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0">
+              <div class="font-semibold text-[#ECEAE4] mono-num truncate">${escapeHtml(p.reported_name)} <span class="text-[11px] text-[#C8A252] font-normal">[${escapeHtml((p.kind || "").toUpperCase())}]</span></div>
+              <div class="text-[11px] text-[#5B6470] mono-num mt-0.5">${escapeHtml(p.filename || "")} · ${sizeKB} KB · sha256:${shortSHA}</div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              ${isActive
+                ? '<span class="px-2 py-1 rounded-sm bg-[#C8A252]/15 text-[#E6C87E] border border-[#C8A252]/35 mono-num text-[11px]">Active</span>'
+                : `<button onclick="activateParser('custom', '${escapeHtml(p.id)}')" class="px-2.5 py-1 btn-secondary text-[11px]">Activate</button>`
+              }
+              <button onclick="deleteCustomParser('${escapeHtml(p.id)}')" class="px-2 py-1 rounded-sm bg-[#1F252D] hover:bg-[#BF2E1A] text-[#96A0AB] hover:text-[#ECEAE4] border border-[#2B333E] text-[11px] transition">Delete</button>
+            </div>
+          </div>
+        `);
+      }
+      document.getElementById("parserListBox").innerHTML = items.join("");
+    }
+
+    async function activateParser(mode, id) {
+      const res = await fetch("/api/v1/admin/parsers/active", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, id })
+      });
+      if (res.ok) {
+        showToast(mode === "default" ? "Switched cluster parser to default" : `Activated custom(${id})`);
+        fetchOverview();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || "Failed to switch parser");
+      }
+    }
+
+    async function deleteCustomParser(id) {
+      const res = await fetch(`/api/v1/admin/parsers/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (res.ok) {
+        showToast(`Deleted custom(${id})`);
+        fetchOverview();
+      }
+    }
+
+    async function uploadCustomParser() {
+      const fileInput = document.getElementById("customParserFile");
+      const nameInput = document.getElementById("customParserName");
+      const activateChk = document.getElementById("customParserActivate");
+      const statusEl = document.getElementById("parserUploadStatus");
+      const btn = document.getElementById("uploadParserBtn");
+
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        statusEl.textContent = "⚠ Select a .wasm, .go, .lua, .py, or .js file first.";
+        statusEl.className = "text-xs mono-num px-3 py-2 rounded-sm border border-[#C8A252] bg-[#1F252D] text-[#E6C87E]";
+        return;
+      }
+
+      const form = new FormData();
+      form.append("name", nameInput.value.trim());
+      form.append("activate", activateChk.checked ? "true" : "false");
+      form.append("file", file);
+
+      btn.disabled = true;
+      btn.textContent = "Packaging...";
+      statusEl.textContent = "Validating and packaging parser into sandboxed artifact...";
+      statusEl.className = "text-xs mono-num px-3 py-2 rounded-sm border border-[#2B333E] bg-[#15191F] text-[#96A0AB]";
+
+      try {
+        const res = await fetch("/api/v1/admin/parsers/upload", { method: "POST", body: form });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          statusEl.textContent = "✕ " + (body.error || `Upload failed (HTTP ${res.status})`);
+          statusEl.className = "text-xs mono-num px-3 py-2 rounded-sm border border-[#BF2E1A] bg-[#1F252D] text-[#ECEAE4] whitespace-pre-wrap max-h-28 overflow-y-auto";
+        } else {
+          statusEl.textContent = `✓ Packaged ${body.reported_name} [${body.kind.toUpperCase()}] (${Math.round((body.artifact_size || 0)/1024)} KB, sha256:${(body.sha256 || "").slice(0,12)})`;
+          statusEl.className = "text-xs mono-num px-3 py-2 rounded-sm border border-[#C8A252] bg-[#1F252D] text-[#E6C87E]";
+          nameInput.value = "";
+          fileInput.value = "";
+          showToast(`Uploaded ${body.reported_name}`);
+          fetchOverview();
+        }
+      } catch (e) {
+        statusEl.textContent = "✕ " + String(e);
+        statusEl.className = "text-xs mono-num px-3 py-2 rounded-sm border border-[#BF2E1A] bg-[#1F252D] text-[#ECEAE4]";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Upload & Package";
+      }
+    }
+
+    function renderFilterSelector(cfg, lobbyCatalog, modeCatalog) {
+      document.getElementById("fltRequire10Humans").checked = !!cfg.require_10_humans;
+      document.getElementById("fltMinDuration").value = cfg.min_duration_seconds || 0;
+      document.getElementById("fltCDNDelay").value = cfg.cdn_delay_seconds || 0;
+      document.getElementById("fltPollInterval").value = cfg.poll_interval_ms || 2000;
+      document.getElementById("fltMaxQueue").value = cfg.max_queue_size || 10000;
+
+      const allowedLobbies = new Set(cfg.allowed_lobby_types || []);
+      document.getElementById("lobbyTypeList").innerHTML = lobbyCatalog.map(item => `
+        <label class="flex items-start gap-2.5 cursor-pointer hover:bg-[#1F252D] p-2 rounded-sm transition">
+          <input type="checkbox" class="flt-lobby mt-0.5 shrink-0" value="${item.id}" ${allowedLobbies.has(item.id) ? "checked" : ""} />
+          <div class="min-w-0">
+            <div class="text-xs font-medium text-[#ECEAE4]">${item.name} <span class="text-[#5B6470] mono-num">[${item.id}]</span></div>
+            <div class="text-[11px] text-[#96A0AB]">${item.description}</div>
+          </div>
+        </label>
+      `).join("");
+
+      const allowedModes = new Set(cfg.allowed_game_modes || []);
+      document.getElementById("gameModeList").innerHTML = modeCatalog.map(item => `
+        <label class="flex items-start gap-2.5 cursor-pointer hover:bg-[#1F252D] p-2 rounded-sm transition">
+          <input type="checkbox" class="flt-mode mt-0.5 shrink-0" value="${item.id}" ${allowedModes.has(item.id) ? "checked" : ""} />
+          <div class="min-w-0">
+            <div class="text-xs font-medium text-[#ECEAE4]">${item.name} <span class="text-[#5B6470] mono-num">[${item.id}]</span></div>
+            <div class="text-[11px] text-[#96A0AB]">${item.description}</div>
+          </div>
+        </label>
+      `).join("");
+
+      const allowedRegs = new Set(cfg.allowed_regions || []);
+      document.getElementById("regionFilterList").innerHTML = ALL_REGIONS.map(r => `
+        <label class="flex items-center justify-center gap-2 cursor-pointer bg-[#15191F] hover:bg-[#1F252D] px-2.5 py-1.5 rounded-sm border border-[#2B333E] transition">
+          <input type="checkbox" class="flt-region" value="${r}" ${allowedRegs.has(r) ? "checked" : ""} />
+          <span class="text-xs font-medium text-[#ECEAE4] mono-num">${r}</span>
+        </label>
+      `).join("");
+    }
+
+    async function saveSinkConfig() {
+      const url = document.getElementById("sinkWebhookUrl").value.trim();
+      const enabled = document.getElementById("sinkWebhookEnabled").checked;
+      const res = await fetch("/api/v1/admin/sink", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhook_url: url, webhook_enabled: enabled })
+      });
+      if (res.ok) {
+        showToast("External program forwarder updated");
+        fetchOverview();
+      }
+    }
+
+    async function saveServerApiKeys() {
+      const steam = document.getElementById("serverSteamKey").value.trim();
+      const stratz = document.getElementById("serverStratzKey").value.trim();
+      const opendota = document.getElementById("serverOpenDotaKey").value.trim();
+      const res = await fetch("/api/v1/admin/api-keys", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steam_api_key: steam, stratz_api_key: stratz, opendota_api_key: opendota })
+      });
+      if (res.ok) {
+        showToast("Server API keys updated");
+        fetchOverview();
+      } else {
+        showToast("Failed to save server API keys");
+      }
+    }
+
+    function renderFileStorageButton() {
+      const btn = document.getElementById("btnToggleFileStorage");
+      if (!btn) return;
+      if (fileStorageEnabled) {
+        btn.textContent = "Disable File Saving";
+        btn.className = "px-2.5 py-1.5 rounded-sm text-[11px] font-medium border border-[#2B333E] bg-[#1F252D] text-[#E6C87E] hover:border-[#C8A252] shrink-0";
+      } else {
+        btn.textContent = "Enable File Saving";
+        btn.className = "px-2.5 py-1.5 rounded-sm text-[11px] font-medium border border-[#BF2E1A] bg-[#24171A] text-[#F46253] hover:bg-[#321B20] shrink-0";
+      }
+    }
+
+    async function toggleFileStorage() {
+      const next = !fileStorageEnabled;
+      const res = await fetch("/api/v1/admin/file-storage", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next })
+      });
+      if (res.ok) {
+        fileStorageEnabled = next;
+        renderFileStorageButton();
+        showToast(next ? "Saving matches to file enabled" : "Saving matches to file disabled");
+        fetchOverview();
+      } else {
+        showToast("Failed to update file storage setting");
+      }
+    }
+
+    async function saveFilters(customToast) {
+      const lobbies = Array.from(document.querySelectorAll(".flt-lobby:checked")).map(el => parseInt(el.value, 10));
+      const modes = Array.from(document.querySelectorAll(".flt-mode:checked")).map(el => parseInt(el.value, 10));
+      const regions = Array.from(document.querySelectorAll(".flt-region:checked")).map(el => el.value);
+
+      const payload = {
+        enabled: harvesterEnabled,
+        require_10_humans: document.getElementById("fltRequire10Humans").checked,
+        min_duration_seconds: parseInt(document.getElementById("fltMinDuration").value, 10) || 0,
+        max_duration_seconds: 7200,
+        cdn_delay_seconds: parseInt(document.getElementById("fltCDNDelay").value, 10) || 0,
+        poll_interval_ms: parseInt(document.getElementById("fltPollInterval").value, 10) || 2000,
+        max_queue_size: parseInt(document.getElementById("fltMaxQueue").value, 10) || 10000,
+        allowed_lobby_types: lobbies,
+        allowed_game_modes: modes,
+        allowed_regions: regions
+      };
+
+      const res = await fetch("/api/v1/admin/filters", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        showToast(customToast || "Filter configuration updated");
+        fetchOverview();
+      }
+    }
+
+    let tutorialChecked = false;
+    let tourIndex = 0;
+    let tourHighlightedEl = null;
+
+    const TOUR_STEPS = [
+      {
+        target: "tour-apikeys",
+        title: "1. API Keys (Discovery & Salts)",
+        body: "Configure your Steam Web API Key for direct match discovery (blank = OpenDota publicMatches fallback), plus STRATZ (Priority 1) and OpenDota (Priority 2) keys for replay salt resolution. All keys save to data/api_keys.json and take effect immediately."
+      },
+      {
+        target: "tour-filters",
+        title: "2. Match Ingestion Filters",
+        body: "Control which Dota 2 matches enter the worker queue: filter by Lobby Type, Game Mode, Server Region, 10-Human requirement, and minimum duration. Use Engine Timing to tune poll intervals and CDN delay buffers."
+      },
+      {
+        target: "tour-parser",
+        title: "3. Active Replay Parser",
+        body: "Expand this panel to switch between the built-in Manta parser or upload custom sandboxed parsers (.wasm, .go, .lua, .py, .js). Workers automatically sync and re-queue stale parses."
+      },
+      {
+        target: "tour-storage",
+        title: "4. Integrations & File Storage",
+        body: "Use the Disable/Enable File Saving button right on the header to toggle saving <match_id>.json files to disk. Expand the panel to configure Outbound Webhooks or view the live SSE stream and REST endpoints."
+      }
+    ];
+
+    function clearTourHighlight() {
+      if (tourHighlightedEl) {
+        tourHighlightedEl.classList.remove("tour-highlight");
+        tourHighlightedEl = null;
+      }
+    }
+
+    function positionTourCard(targetEl) {
+      const card = document.getElementById("tourCard");
+      if (!targetEl) {
+        card.style.top = "50%";
+        card.style.left = "50%";
+        card.style.transform = "translate(-50%, -50%)";
+        return;
+      }
+      const rect = targetEl.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const margin = 14;
+      let top = rect.bottom + margin;
+      if (top + cardRect.height > window.innerHeight - 16) {
+        top = Math.max(16, rect.top - cardRect.height - margin);
+      }
+      const left = Math.min(
+        Math.max(16, rect.left + (rect.width - cardRect.width) / 2),
+        window.innerWidth - cardRect.width - 16
+      );
+      card.style.transform = "none";
+      card.style.top = `${Math.round(top)}px`;
+      card.style.left = `${Math.round(left)}px`;
+    }
+
+    function renderTourStep() {
+      clearTourHighlight();
+      const step = TOUR_STEPS[tourIndex];
+      const targetEl = document.getElementById(step.target);
+      document.getElementById("tourStepBadge").textContent = `Step ${tourIndex + 1} / ${TOUR_STEPS.length}`;
+      document.getElementById("tourTitle").textContent = step.title;
+      document.getElementById("tourBody").textContent = step.body;
+      document.getElementById("tourPrevBtn").disabled = tourIndex === 0;
+      document.getElementById("tourPrevBtn").classList.toggle("opacity-40", tourIndex === 0);
+      document.getElementById("tourNextBtn").textContent = tourIndex === TOUR_STEPS.length - 1 ? "Finish" : "Next";
+
+      if (targetEl) {
+        targetEl.classList.add("tour-highlight");
+        tourHighlightedEl = targetEl;
+        targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        setTimeout(() => positionTourCard(targetEl), 220);
+      } else {
+        positionTourCard(null);
+      }
+    }
+
+    function startTour() {
+      tourIndex = 0;
+      document.getElementById("tourBackdrop").classList.remove("hidden");
+      document.getElementById("tourCard").classList.remove("hidden");
+      renderTourStep();
+    }
+
+    function nextTourStep() {
+      if (tourIndex < TOUR_STEPS.length - 1) {
+        tourIndex++;
+        renderTourStep();
+      } else {
+        finishTour();
+      }
+    }
+
+    function prevTourStep() {
+      if (tourIndex > 0) {
+        tourIndex--;
+        renderTourStep();
+      }
+    }
+
+    async function finishTour() {
+      clearTourHighlight();
+      document.getElementById("tourBackdrop").classList.add("hidden");
+      document.getElementById("tourCard").classList.add("hidden");
+      try {
+        await fetch("/api/v1/admin/tutorial/complete", { method: "POST" });
+      } catch (e) {}
+    }
+
+    fetchOverview();
+    setInterval(fetchOverview, 3000);
+  </script>
+</body>
+</html>

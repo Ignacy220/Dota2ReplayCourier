@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html lang="en" class="dark" data-faction="neutral">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dota2ReplayCourier</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* ==========================================================================
+       1. MAIN DOTA THEME (Global / Neutral Baseline — "no_side")
+       ========================================================================== */
+    :root,
+    html[data-faction="neutral"] {
+      color-scheme: dark;
+      --bg-canvas: #0D1014;
+      --bg-rail: #11151B;
+      --bg-surface: #15191F;
+      --bg-elevated: #1F252D;
+      --bg-recessed: #090C0F;
+      --border-subtle: #2B333E;
+      --border-top-edge: rgba(255, 255, 255, 0.06);
+      --border-glow: rgba(200, 162, 82, 0.32);
+
+      --text-primary: #ECEAE4;
+      --text-secondary: #96A0AB;
+      --text-muted: #5B6470;
+      --text-accent: #E6C87E;
+
+      --accent-primary: #BF2E1A;
+      --accent-primary-muted: #6E1B10;
+      --accent-primary-fg: #ECEAE4;
+      --accent-secondary: #C8A252;
+      --accent-highlight: #E6C87E;
+      --accent-gold: #C8A252;
+      --accent-gold-light: #E6C87E;
+
+      --panel-gradient: linear-gradient(180deg, #181D24 0%, #13171D 100%);
+      --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 20px rgba(0, 0, 0, 0.42);
+      --panel-radius: 3px;
+      --header-hairline: rgba(200, 162, 82, 0.18);
+      --progress-track: #2B333E;
+      --progress-fill: linear-gradient(90deg, #C8A252 0%, #E6C87E 100%);
+      --tab-bar-color: #BF2E1A;
+    }
+
+    /* ==========================================================================
+       2. RADIANT THEME (Dark Mode — "Verdant Sanctuary")
+       ========================================================================== */
+    html[data-faction="radiant"] {
+      --bg-canvas: #0A100D;
+      --bg-rail: #0D1511;
+      --bg-surface: #111B16;
+      --bg-elevated: #18261F;
+      --bg-recessed: #070C09;
+      --border-subtle: #243A2F;
+      --border-top-edge: #2E4A3B;
+      --border-glow: rgba(117, 184, 50, 0.3);
+
+      --text-primary: #EDF2EE;
+      --text-secondary: #93A89C;
+      --text-muted: #5A7064;
+      --text-accent: #94D94E;
+
+      --accent-primary: #75B832;
+      --accent-primary-muted: #4A731D;
+      --accent-primary-fg: #0A100D;
+      --accent-secondary: #D4B978;
+      --accent-highlight: #3CD099;
+      --accent-gold: #D4B978;
+      --accent-gold-light: #E6C87E;
+
+      /* Top-Down Moonlight lighting direction */
+      --panel-gradient: linear-gradient(180deg, #16231C 0%, #0E1612 100%);
+      --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 16px rgba(117, 184, 50, 0.12);
+      --panel-radius: 4px;
+      --header-hairline: rgba(212, 185, 120, 0.22);
+      --progress-track: #243A2F;
+      --progress-fill: linear-gradient(90deg, #75B832 0%, #3CD099 100%);
+      --tab-bar-color: #75B832;
+    }
+
+    /* ==========================================================================
+       3. DIRE THEME (Dark Mode — "Obsidian Forge")
+       ========================================================================== */
+    html[data-faction="dire"] {
+      --bg-canvas: #100A0B;
+      --bg-rail: #140C0E;
+      --bg-surface: #1A1113;
+      --bg-elevated: #24171A;
+      --bg-recessed: #0B0708;
+      --border-subtle: #3B2125;
+      --border-top-edge: rgba(232, 122, 36, 0.18);
+      --border-glow: rgba(224, 69, 56, 0.35);
+
+      --text-primary: #F3EAE9;
+      --text-secondary: #AD9597;
+      --text-muted: #6E5558;
+      --text-accent: #F46253;
+
+      --accent-primary: #D93B2B;
+      --accent-primary-muted: #7D2018;
+      --accent-primary-fg: #FFFFFF;
+      --accent-secondary: #E87A24;
+      --accent-highlight: #A348C7;
+      --accent-gold: #D4B978;
+      --accent-gold-light: #E6C87E;
+
+      /* Bottom-Up Underglow lighting direction */
+      --panel-gradient: linear-gradient(180deg, #140D0E 0%, #211214 100%);
+      --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 18px rgba(217, 59, 43, 0.16);
+      --panel-radius: 2px;
+      --header-hairline: rgba(232, 122, 36, 0.25);
+      --progress-track: #3B2125;
+      --progress-fill: linear-gradient(90deg, #D93B2B 0%, #E87A24 100%);
+      --tab-bar-color: #D93B2B;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      overflow: hidden;
+      caret-color: var(--accent-secondary);
+      transition: background-color 240ms ease, color 240ms ease;
+    }
+
+    h1, h2, h3, .dota-heading {
+      font-family: 'Cinzel', Georgia, serif;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-primary);
+      text-wrap: balance;
+    }
+
+    p {
+      text-wrap: pretty;
+    }
+
+    .mono-num {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .rail-surface {
+      background-color: var(--bg-rail);
+      border-right: 1px solid var(--border-subtle);
+    }
+
+    .header-surface {
+      background-color: var(--bg-rail);
+      border-bottom: 1px solid var(--header-hairline);
+      box-shadow: inset 0 -1px 0 var(--border-subtle);
+    }
+
+    .panel {
+      background: var(--panel-gradient);
+      border: 1px solid var(--border-subtle);
+      border-top-color: var(--border-top-edge);
+      border-radius: var(--panel-radius);
+      padding: 16px;
+      box-shadow: var(--panel-shadow);
+    }
+
+    .recessed-box {
+      background-color: var(--bg-recessed);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--panel-radius);
+      padding: 10px 12px;
+    }
+
+    /* Component Table §5: Primary & Secondary Buttons across Neutral / Radiant / Dire */
+    .btn-primary {
+      background-color: var(--accent-primary);
+      color: var(--accent-primary-fg);
+      border: 1px solid rgba(212, 185, 120, 0.38);
+      border-radius: 2px;
+      font-weight: 600;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 2px 10px rgba(0, 0, 0, 0.4);
+      transition: filter 140ms ease, transform 100ms ease;
+    }
+    html[data-faction="radiant"] .btn-primary {
+      border-color: #D4B978;
+    }
+    html[data-faction="dire"] .btn-primary {
+      background: linear-gradient(90deg, #D93B2B 0%, #E87A24 100%);
+      border: none;
+      clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    }
+    .btn-primary:hover:not(:disabled) {
+      filter: brightness(1.1);
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: var(--bg-elevated);
+      color: var(--accent-secondary);
+      border: 1px solid var(--accent-secondary);
+      border-radius: 2px;
+      font-weight: 500;
+      transition: filter 140ms ease, background-color 140ms ease;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      filter: brightness(1.14);
+    }
+
+    /* Navigation Tabs (§5 Active Tab Indicator) */
+    .nav-tab {
+      position: relative;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: 2px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border: 1px solid transparent;
+      transition: color 140ms ease, background-color 140ms ease;
+    }
+    .nav-tab:hover {
+      color: var(--text-primary);
+      background-color: var(--bg-surface);
+    }
+    .nav-tab-active {
+      color: var(--text-primary);
+      background-color: var(--bg-elevated);
+      border-color: var(--border-subtle);
+      border-bottom: 2px solid var(--tab-bar-color);
+    }
+    html[data-faction="radiant"] .nav-tab-active {
+      background: linear-gradient(0deg, rgba(117, 184, 50, 0.16) 0%, var(--bg-elevated) 100%);
+    }
+    html[data-faction="dire"] .nav-tab-active::after {
+      content: "";
+      position: absolute;
+      bottom: -4px;
+      left: 50%;
+      width: 6px;
+      height: 6px;
+      background-color: #E87A24;
+      transform: translateX(-50%) rotate(45deg);
+    }
+
+    /* Progress Bars (§5 Stat Progress Bar) */
+    .stat-track {
+      background-color: var(--progress-track);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .stat-fill {
+      height: 100%;
+      background: var(--progress-fill);
+      transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Flowing Pill Progress Bar */
+    .pill-progress-track {
+      display: grid;
+      grid-template-columns: repeat(24, minmax(0, 1fr));
+      gap: 4px;
+      padding: 6px 7px;
+      background-color: var(--bg-recessed);
+      border: 1px solid var(--border-subtle);
+      border-radius: 3px;
+    }
+    .pill-seg {
+      height: 10px;
+      border-radius: 9999px;
+      background-color: var(--progress-track);
+      opacity: 0.4;
+      transition: background-color 180ms ease, opacity 180ms ease, transform 180ms ease;
+    }
+    .pill-seg-filled {
+      opacity: 1;
+      background: var(--progress-fill);
+    }
+    .pill-progress-flowing .pill-seg-filled {
+      animation: pillWave 1.35s ease-in-out infinite;
+      animation-delay: var(--pill-delay, 0ms);
+    }
+    @keyframes pillWave {
+      0%, 100% { filter: brightness(0.92); transform: scaleY(0.92); }
+      45% { filter: brightness(1.38); transform: scaleY(1.12); }
+    }
+
+    .input-field {
+      background-color: var(--bg-recessed);
+      border: 1px solid var(--border-subtle);
+      border-radius: 2px;
+      color: var(--text-primary);
+      padding: 7px 10px;
+      font-size: 13px;
+      width: 100%;
+      transition: border-color 140ms ease;
+    }
+    .input-field:focus {
+      outline: none;
+      border-color: var(--accent-secondary);
+    }
+
+    :focus-visible {
+      outline: 1px solid var(--accent-secondary);
+      outline-offset: 2px;
+    }
+
+    input[type="checkbox"] {
+      accent-color: var(--accent-secondary);
+    }
+
+    /* Matchup / VS Split Bar (Always Radiant Left vs Dire Right, separated by #C8A252 diagonal slash) */
+    .vs-split-shell {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: linear-gradient(180deg, #16231C 0%, #0E1612 100%);
+      border: 1px solid var(--border-subtle);
+      border-top: 1px solid #2E4A3B;
+      border-radius: 3px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 16px rgba(0, 0, 0, 0.45);
+    }
+    .vs-pane-radiant {
+      position: relative;
+      z-index: 1;
+      background: transparent;
+      color: #EDF2EE;
+      padding: 10px 24px 10px 16px;
+    }
+    .vs-pane-dire {
+      position: relative;
+      z-index: 1;
+      background: transparent;
+      color: #F3EAE9;
+      padding: 10px 16px 10px 28px;
+    }
+    .vs-pane-dire::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: -48px;
+      background: linear-gradient(180deg, #140D0E 0%, #211214 100%);
+      border-top: 1px solid #3B2125;
+      border-left: 2px solid #C8A252;
+      transform: skewX(-18deg);
+      transform-origin: center;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .vs-pane-dire > * {
+      position: relative;
+      z-index: 1;
+    }
+    .vs-bar-track {
+      position: relative;
+      height: 7px;
+      background-color: #1A1113;
+      border: 1px solid var(--border-subtle);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .vs-bar-radiant {
+      height: 100%;
+      background: linear-gradient(90deg, #4A731D 0%, #75B832 70%, #3CD099 100%);
+      transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .vs-bar-dire {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, #E87A24 0%, #D93B2B 100%);
+      transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .vs-bar-slash {
+      position: absolute;
+      top: -2px;
+      bottom: -2px;
+      width: 3px;
+      background-color: #E6C87E;
+      transform: translateX(-50%) skewX(-20deg);
+      box-shadow: 0 0 8px rgba(200, 162, 82, 0.9);
+      transition: left 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    ::selection {
+      background: rgba(200, 162, 82, 0.28);
+      color: var(--text-primary);
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg-canvas);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-subtle);
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--accent-secondary);
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex">
+
+  <!-- Left Navigation & Control Rail -->
+  <aside class="w-64 h-full rail-surface flex flex-col justify-between p-4 shrink-0">
+    <div class="space-y-5">
+      <!-- Navigation -->
+      <nav class="space-y-1.5">
+        <button id="navMiner" onclick="switchTab('miner')" class="nav-tab nav-tab-active">
+          <svg class="w-4 h-4 text-[var(--accent-secondary)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span>Node Monitor</span>
+        </button>
+        <button id="navSettings" onclick="switchTab('settings')" class="nav-tab">
+          <svg class="w-4 h-4 text-[var(--text-muted)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Configuration</span>
+        </button>
+      </nav>
+
+      <!-- Merged Account, Allegiance & Contributor Standing Card -->
+      <div class="panel p-3.5 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div id="accountNameText" class="text-xs font-semibold text-[var(--text-primary)] truncate">Anonymous</div>
+            <div id="accountFactionSub" class="text-[11px] text-[var(--text-secondary)] mt-0.5">Unaligned · Local XP</div>
+          </div>
+          <span id="accountModeBadge" class="text-[10px] font-medium px-1.5 py-0.5 rounded-sm bg-[var(--bg-elevated)] text-[var(--accent-secondary)] border border-[var(--border-subtle)] shrink-0 mono-num">Local</span>
+        </div>
+
+        <div class="pt-2.5 border-t border-[var(--border-subtle)] space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span id="rankTierCode" class="mono-num text-[11px] font-semibold px-1.5 py-0.5 rounded-sm bg-[var(--bg-elevated)] text-[var(--accent-secondary)] border border-[var(--border-subtle)]">I</span>
+              <span id="rankTitle" class="dota-heading text-xs font-semibold">Herald</span>
+            </div>
+            <span id="lvlBadge" class="mono-num text-[11px] text-[var(--text-secondary)]">Level 1</span>
+          </div>
+          <div class="w-full h-1.5 stat-track">
+            <div id="xpProgressBar" class="stat-fill" style="width: 8%"></div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-[var(--text-muted)] mono-num">
+            <span id="xpText">0 / 150 XP</span>
+            <span id="streakBadge">1d streak</span>
+          </div>
+        </div>
+
+        <div class="flex gap-1.5 pt-0.5">
+          <button id="accountActionBtn" onclick="onAccountAction()" class="flex-1 py-1.5 px-2.5 btn-primary text-[11px]">
+            Login / Sign Up
+          </button>
+          <button onclick="switchTab('ranks')" class="py-1.5 px-2.5 btn-secondary text-[11px]" title="View Contributor Tiers &amp; Milestones">
+            Tiers
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Primary Control -->
+    <div class="space-y-2 pt-4 border-t border-[var(--border-subtle)]">
+      <button id="pauseBtn" onclick="togglePause()" class="w-full py-2 px-3 btn-secondary text-xs">
+        Pause Worker
+      </button>
+      <div class="pt-1 flex items-center text-[11px] text-[var(--text-muted)] mono-num px-0.5">
+        <span id="footerWorkerId">worker</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 h-full flex flex-col overflow-hidden">
+    <!-- Top Operational Status Bar (Semantic icons + Antique Gold / Bone / Crimson clarity) -->
+    <header class="h-14 header-surface px-6 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-3">
+        <span id="stateBadge" class="inline-flex items-center gap-2 px-2.5 py-1 rounded-sm text-xs font-medium bg-[var(--bg-elevated)] text-[#D4B978] border border-[#C8A252]/40 mono-num">
+          <svg id="stateIcon" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          <span id="stateHeadline">Ready</span>
+        </span>
+        <span id="alertBanner" class="hidden text-xs font-medium text-[#E6C87E] bg-[#1F252D] border border-[#C8A252]/50 px-2.5 py-1 rounded-sm"></span>
+      </div>
+
+      <div class="flex items-center gap-5 text-xs text-[var(--text-secondary)]">
+        <div title="Daily Valve replay key (salt) lookup quota via OpenDota (3,000/day per worker; falls back to Central Server when exhausted).">Replay Key Quota: <span id="headerSaltStatus" class="text-[var(--text-primary)] font-medium mono-num">OpenDota 3,000/3,000</span></div>
+        <div>Region: <span id="headerRegion" class="text-[var(--text-primary)] font-medium mono-num">AUTO</span></div>
+      </div>
+    </header>
+
+    <!-- Content Area -->
+    <div class="flex-1 overflow-y-auto p-6">
+
+      <!-- ==================== VIEW 1: NODE MONITOR ==================== -->
+      <div id="tabMiner" class="min-h-full flex flex-col gap-4">
+        <!-- Ancient War: Radiant vs. Dire Matchup / VS Split -->
+        <section class="space-y-1.5 shrink-0">
+          <div class="vs-split-shell">
+            <!-- Left Panel: Radiant Tokens ("Verdant Sanctuary") -->
+            <div class="vs-pane-radiant flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5">
+                <div class="w-7 h-7 rounded border border-[#243A2F] bg-[#18261F] flex items-center justify-center shrink-0 overflow-hidden p-0.5">
+                  <img src="/pictures/radiant_logo.png" alt="Radiant" class="w-full h-full object-contain" />
+                </div>
+                <div class="dota-heading text-xs font-semibold text-[#D4B978]">The Radiant</div>
+              </div>
+              <div class="text-right mono-num">
+                <div class="text-base font-semibold text-[#94D94E]"><span id="vsRadXP">0</span> XP</div>
+                <div id="vsRadPct" class="text-[10px] text-[#93A89C]">50.0%</div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Dire Tokens ("Obsidian Forge") -->
+            <div class="vs-pane-dire flex items-center justify-between gap-3">
+              <div class="mono-num">
+                <div class="text-base font-semibold text-[#F46253]"><span id="vsDireXP">0</span> XP</div>
+                <div id="vsDirePct" class="text-[10px] text-[#AD9597]">50.0%</div>
+              </div>
+              <div class="flex items-center gap-2.5 text-right">
+                <div class="dota-heading text-xs font-semibold text-[#E87A24]">The Dire</div>
+                <div class="w-7 h-7 border border-[#3B2125] bg-[#24171A] flex items-center justify-center shrink-0 overflow-hidden p-0.5" style="clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);">
+                  <img src="/pictures/dire_logo.png" alt="Dire" class="w-full h-full object-contain" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="vs-bar-track">
+            <div id="vsBarRadiant" class="vs-bar-radiant" style="width: 50%"></div>
+            <div id="vsBarDire" class="vs-bar-dire" style="width: 50%"></div>
+            <div id="vsBarSlash" class="vs-bar-slash" style="left: 50%"></div>
+          </div>
+        </section>
+
+        <!-- Telemetry Charts Row -->
+        <div class="grid grid-cols-3 gap-4 shrink-0">
+          <div class="panel p-3.5 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-[var(--text-secondary)]">Parser Throughput</span>
+              <span id="chartThroughputLast" class="mono-num text-[var(--accent-secondary)] font-semibold">—</span>
+            </div>
+            <svg id="chartThroughput" viewBox="0 0 260 88" class="w-full h-22 block recessed-box p-1"></svg>
+            <div class="flex items-center justify-between text-[10px] text-[var(--text-muted)] mono-num">
+              <span id="chartThroughputStart">#1</span>
+              <span>X: Parsed</span>
+              <span id="chartThroughputEnd">—</span>
+            </div>
+          </div>
+
+          <div class="panel p-3.5 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-[var(--text-secondary)]">Download Speed</span>
+              <span id="chartDownloadLast" class="mono-num text-[var(--text-accent)] font-semibold">—</span>
+            </div>
+            <svg id="chartDownload" viewBox="0 0 260 88" class="w-full h-22 block recessed-box p-1"></svg>
+            <div class="flex items-center justify-between text-[10px] text-[var(--text-muted)] mono-num">
+              <span id="chartDownloadStart">#1</span>
+              <span>X: Parsed</span>
+              <span id="chartDownloadEnd">—</span>
+            </div>
+          </div>
+
+          <div class="panel p-3.5 space-y-2">
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <div class="flex items-baseline gap-2 min-w-0">
+                <span class="font-medium text-[var(--text-secondary)]">Parsed</span>
+                <span class="text-[11px] text-[var(--text-muted)] mono-num truncate">Today: <span id="statYourToday" class="text-[var(--text-primary)] font-medium">0</span> · Total: <span id="statYourTotal" class="text-[var(--text-accent)] font-medium">0</span></span>
+              </div>
+              <span id="chartParsedLast" class="mono-num text-[var(--accent-secondary)] font-semibold shrink-0">0/min</span>
+            </div>
+            <svg id="chartParsedTime" viewBox="0 0 260 88" class="w-full h-22 block recessed-box p-1"></svg>
+            <div class="flex items-center justify-between text-[10px] text-[var(--text-muted)] mono-num">
+              <span id="chartParsedStart">—</span>
+              <span>X: Time</span>
+              <span id="chartParsedEnd">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Middle Row: 2-Column Operational Workspace -->
+        <div class="grid grid-cols-12 gap-5 flex-1 min-h-0">
+          <!-- Left Column: Active Pipeline Execution (7 cols) -->
+          <section class="col-span-7 panel p-5 flex flex-col justify-between">
+            <div class="space-y-4">
+              <div class="flex items-center justify-between border-b border-[var(--header-hairline)] pb-3">
+                <div>
+                  <h2 class="text-sm font-semibold" id="currentMatchTitle">Waiting for match lease</h2>
+                  <p class="text-xs text-[var(--text-secondary)] mt-0.5">Parser: <span id="parserBadge" class="text-[var(--text-accent)] mono-num">default (2.0.0)</span></p>
+                </div>
+                <span id="stagePercentText" class="mono-num text-xs font-medium px-2.5 py-1 rounded-sm recessed-box text-[var(--accent-secondary)]">IDLE · 0%</span>
+              </div>
+
+              <!-- 4-Stage Pipeline Indicator -->
+              <div class="grid grid-cols-4 gap-2 pt-1">
+                <div id="stepLease" class="px-2.5 py-2 rounded-sm recessed-box text-[11px] font-medium text-[var(--text-muted)]">1. Lease</div>
+                <div id="stepDownload" class="px-2.5 py-2 rounded-sm recessed-box text-[11px] font-medium text-[var(--text-muted)]">2. RAM Stream</div>
+                <div id="stepParse" class="px-2.5 py-2 rounded-sm recessed-box text-[11px] font-medium text-[var(--text-muted)]">3. Parse</div>
+                <div id="stepSubmit" class="px-2.5 py-2 rounded-sm recessed-box text-[11px] font-medium text-[var(--text-muted)]">4. Submit</div>
+              </div>
+
+              <!-- Flowing Pill Progress Bar -->
+              <div id="pillProgressBar" class="pill-progress-track"></div>
+            </div>
+
+            <!-- Pipeline Metadata -->
+            <div class="pt-4 border-t border-[var(--border-subtle)] text-xs">
+              <div class="text-[var(--text-secondary)]">Daily Bandwidth Usage</div>
+              <div id="bwMeterText" class="text-[var(--text-primary)] font-medium mono-num mt-0.5">0.0 MB / 10 GB</div>
+            </div>
+          </section>
+
+          <!-- Right Column: Live Activity Log (5 cols) -->
+          <section class="col-span-5 panel p-5 flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-3 border-b border-[var(--header-hairline)] pb-2.5 shrink-0">
+              <h2 class="text-sm font-semibold">Event Log</h2>
+              <span class="text-[11px] text-[var(--accent-secondary)] mono-num">Live</span>
+            </div>
+            <div id="activityFeedList" class="flex-1 recessed-box p-3 overflow-y-auto mono-num text-xs space-y-2"></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ==================== VIEW 2: CONTRIBUTOR STANDING ==================== -->
+      <div id="tabRanks" class="hidden space-y-5">
+        <section class="panel p-5">
+          <div class="flex items-center justify-between mb-4 border-b border-[var(--header-hairline)] pb-3">
+            <div>
+              <h2 class="text-sm font-semibold">Contributor Tiers</h2>
+              <p class="text-xs text-[var(--text-secondary)] mt-0.5">Each verified match parsed awards 50 XP to your account and sworn Ancient.</p>
+            </div>
+            <button onclick="switchTab('miner')" class="px-3 py-1.5 btn-secondary text-xs">
+              Back to Monitor
+            </button>
+          </div>
+          <div id="rankTiersGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
+        </section>
+      </div>
+
+      <!-- ==================== VIEW 3: CONFIGURATION ==================== -->
+      <div id="tabSettings" class="hidden">
+        <section class="panel p-5 space-y-5 max-w-3xl">
+          <div class="border-b border-[var(--header-hairline)] pb-3">
+            <h2 class="text-sm font-semibold">Worker &amp; Gamer Guard Configuration</h2>
+            <p class="text-xs text-[var(--text-secondary)] mt-0.5">Configure coordinator endpoint, regional latency routing, game process detection, and bandwidth limits.</p>
+          </div>
+
+          <div class="space-y-3">
+            <div class="grid grid-cols-3 gap-4">
+              <div class="col-span-2">
+                <label class="block text-xs text-[var(--text-secondary)] mb-1.5">Central Server URL</label>
+                <div class="flex gap-2">
+                  <input id="prefServerUrl" type="text" value="" placeholder="https://example.com" class="input-field mono-num" />
+                  <button onclick="testConnectionNow()" class="px-3.5 py-1.5 btn-secondary text-xs shrink-0">
+                    Test Connection
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1.5">Preferred Region</label>
+                <select id="prefRegion" class="input-field">
+                  <option value="AUTO" selected>Auto (Closest by Latency)</option>
+                  <option value="EU">EU (Frankfurt / Luxembourg)</option>
+                  <option value="NA">NA (US East / West)</option>
+                  <option value="SEA">SEA (Singapore)</option>
+                  <option value="SA">SA (Brazil)</option>
+                  <option value="CN">CN (China / HK)</option>
+                  <option value="OCE">OCE (Sydney)</option>
+                </select>
+              </div>
+            </div>
+            <div id="configConnBox" class="px-3 py-2 recessed-box text-xs mono-num text-[var(--text-secondary)]">
+              Checking coordinator status...
+            </div>
+
+            <!-- Regional Relay Latency Ranking -->
+            <div class="p-3 recessed-box space-y-2.5">
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-xs font-medium text-[var(--text-primary)]">Regional Relay Latencies</div>
+                <button id="reprobeBtn" onclick="reprobeRegions()" class="px-3 py-1.5 btn-secondary text-xs shrink-0">
+                  Re-probe Latency
+                </button>
+              </div>
+              <div id="regionLatencyGrid" class="grid grid-cols-3 gap-2 text-[11px] mono-num text-[var(--text-secondary)]">
+                <div class="px-2.5 py-1.5 rounded-sm border border-[var(--border-subtle)] bg-[var(--bg-surface)]">Probing regions on startup...</div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1.5">STRATZ API Key (Priority 1 — used first)</label>
+                <input id="prefStratzKey" type="password" placeholder="Optional STRATZ token" class="input-field mono-num" />
+              </div>
+              <div>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1.5">OpenDota API Key (Priority 2 — after STRATZ)</label>
+                <input id="prefOpenDotaKey" type="password" placeholder="Optional (blank = free 3,000/day)" class="input-field mono-num" />
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-[var(--border-subtle)] space-y-3.5">
+            <label class="flex items-center gap-2.5 cursor-pointer">
+              <input id="prefPauseOnGaming" type="checkbox" checked onchange="syncConfigFieldStates()" class="w-4 h-4 rounded-sm" />
+              <span class="text-xs font-medium text-[var(--text-primary)]">Pause new downloads when a watched game is active</span>
+            </label>
+
+            <div id="gamerGuardFields" class="grid grid-cols-2 gap-4 transition-opacity duration-150">
+              <div>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1.5">Watched Games (comma-separated)</label>
+                <input id="prefWatchedProcs" type="text" placeholder="dota2, cs2, valorant" value="dota2, cs2, valorant" class="input-field mono-num" />
+              </div>
+              <div>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1.5">Behavior When Game Launches Mid-Parse</label>
+                <select id="prefGamingBehavior" class="input-field">
+                  <option value="HOLD_IN_RAM">Hold in RAM and pause until game exits</option>
+                  <option value="ECO_SLOWDOWN">Continue at idle OS priority</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-[var(--border-subtle)] grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs text-[var(--text-secondary)] mb-1.5">System Idle Policy</label>
+              <select id="prefIdlePolicy" onchange="syncConfigFieldStates()" class="input-field">
+                <option value="TURBO_WHEN_IDLE">Run normally (turbo CPU when PC is idle)</option>
+                <option value="ONLY_WHEN_IDLE">Run only when PC is idle</option>
+                <option value="ALWAYS_RUN">Always run</option>
+              </select>
+            </div>
+            <div id="prefIdleMinutesWrap" class="transition-opacity duration-150">
+              <label for="prefIdleMinutes" class="block text-xs text-[var(--text-secondary)] mb-1.5">PC Inactivity Time (minutes)</label>
+              <input id="prefIdleMinutes" type="number" min="1" max="240" value="5" class="input-field mono-num" />
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-[var(--border-subtle)] grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs text-[var(--text-secondary)] mb-1.5">Daily Bandwidth Limit</label>
+              <select id="prefMaxBw" class="input-field">
+                <option value="5120">5 GB</option>
+                <option value="10240" selected>10 GB</option>
+                <option value="25600">25 GB</option>
+                <option value="0">Unlimited</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-2">
+            <button onclick="savePrefs()" class="px-4 py-2 btn-primary text-xs">
+              Save Configuration
+            </button>
+            <span id="saveMsg" class="text-xs text-[#E6C87E] font-medium"></span>
+          </div>
+        </section>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Account Registration / Sign-In Modal -->
+  <div id="authModal" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+    <div class="w-full max-w-lg panel p-6 space-y-4">
+      <div class="border-b border-[var(--header-hairline)] pb-3">
+        <h2 id="authModalTitle" class="text-base font-semibold">Create Account</h2>
+      </div>
+
+      <!-- Server Connection Prerequisite (Default server is none) -->
+      <div class="recessed-box p-3 space-y-2">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-medium text-[var(--text-primary)]">Coordinator Server</span>
+          <span id="authServerStatus" class="mono-num text-[11px] text-[#E87A24]">Not connected</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="authServerUrl" type="text" placeholder="https://example.com" class="input-field mono-num flex-1" />
+          <button type="button" id="authConnectBtn" onclick="connectAuthServer()" class="px-3.5 py-2 btn-secondary text-xs shrink-0">
+            Connect
+          </button>
+        </div>
+      </div>
+
+      <div class="flex gap-2 recessed-box p-1 text-xs">
+        <button id="authTabRegister" onclick="setAuthMode('register')" class="flex-1 py-1.5 rounded-sm bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--accent-secondary)]/40 font-medium transition">Create Account</button>
+        <button id="authTabLogin" onclick="setAuthMode('login')" class="flex-1 py-1.5 rounded-sm text-[var(--text-secondary)] transition">Sign In</button>
+      </div>
+
+      <!-- Faction Selector (Only on Create Account) -->
+      <div id="authFactionBlock" class="space-y-2">
+        <div class="text-xs text-[var(--text-secondary)] font-medium">Choose Your Faction</div>
+        <div id="factionSlashShell" class="relative h-28 rounded overflow-hidden border border-[var(--border-subtle)] bg-[#0A0D10]">
+          <!-- Left Pane: The Radiant -->
+          <button
+            type="button"
+            id="pickRadiantBtn"
+            onclick="selectRegisterFaction('radiant')"
+            class="absolute inset-0 text-left p-3.5 flex flex-col justify-end transition-all duration-200 focus:outline-none overflow-hidden"
+            style="clip-path: polygon(0 0, 54% 0, 46% 100%, 0 100%);"
+          >
+            <img src="/pictures/radiant_icon.png" alt="" class="absolute inset-0 w-full h-full object-cover scale-125 pointer-events-none" style="object-position: 35% center;" />
+            <div class="absolute inset-0 pointer-events-none" style="background: linear-gradient(180deg, rgba(10,16,13,0.28) 0%, rgba(10,16,13,0.86) 100%);"></div>
+            <div class="relative z-10">
+              <div class="dota-heading text-xs font-semibold text-[#D4B978] drop-shadow">The Radiant</div>
+            </div>
+          </button>
+
+          <!-- Right Pane: The Dire -->
+          <button
+            type="button"
+            id="pickDireBtn"
+            onclick="selectRegisterFaction('dire')"
+            class="absolute inset-0 text-right p-3.5 flex flex-col justify-end items-end transition-all duration-200 focus:outline-none overflow-hidden"
+            style="clip-path: polygon(54% 0, 100% 0, 100% 100%, 46% 100%);"
+          >
+            <img src="/pictures/dire_icon.png" alt="" class="absolute inset-0 w-full h-full object-cover scale-125 pointer-events-none" style="object-position: 65% center;" />
+            <div class="absolute inset-0 pointer-events-none" style="background: linear-gradient(180deg, rgba(16,10,11,0.28) 0%, rgba(16,10,11,0.88) 100%);"></div>
+            <div class="relative z-10">
+              <div class="dota-heading text-xs font-semibold text-[#E87A24] drop-shadow">The Dire</div>
+            </div>
+          </button>
+
+          <!-- Diagonal Slash Divider -->
+          <div
+            class="pointer-events-none absolute top-[-10%] bottom-[-10%] left-1/2 w-[3px] z-20"
+            style="background: linear-gradient(180deg, #E6C87E, #C8A252, #E6C87E); transform: translateX(-50%) skewX(-18deg); box-shadow: 0 0 12px rgba(200, 162, 82, 0.7);"
+          ></div>
+        </div>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-[var(--text-secondary)] mb-1">Nickname</label>
+          <input id="authNicknameInput" type="text" placeholder="3-24 chars (letters, digits, _, -)" class="input-field" />
+        </div>
+        <div>
+          <label class="block text-[var(--text-secondary)] mb-1">Password</label>
+          <input id="authPasswordInput" type="password" placeholder="At least 6 characters" class="input-field" onkeydown="if(event.key==='Enter')submitAuthForm()" />
+        </div>
+      </div>
+
+      <div id="authErrorBox" class="hidden text-xs text-[#ECEAE4] bg-[#24171A] border border-[#D93B2B] rounded-sm px-3 py-2"></div>
+
+      <div class="flex items-center justify-between gap-2 pt-1">
+        <button onclick="dismissAuthPrompt()" class="px-3 py-2 btn-secondary text-xs">
+          Use Anonymously (No Side)
+        </button>
+        <button id="authSubmitBtn" onclick="submitAuthForm()" class="px-4 py-2 btn-primary text-xs">
+          Create
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let prefsInitialized = false;
+    let authModalChecked = false;
+    let authMode = "register";
+    let selectedFaction = "radiant";
+    let currentAuthState = false;
+    let activeTabId = "miner";
+
+    const RANK_TIERS = [
+      { tier: "T1", name: "Herald", stars: [0, 50, 250, 1000, 2500] },
+      { tier: "T2", name: "Guardian", stars: [5000, 9000, 13000, 17000, 21000] },
+      { tier: "T3", name: "Crusader", stars: [25000, 40000, 55000, 70000, 85000] },
+      { tier: "T4", name: "Archon", stars: [100000, 145000, 190000, 235000, 280000] },
+      { tier: "T5", name: "Legend", stars: [325000, 460000, 595000, 730000, 865000] },
+      { tier: "T6", name: "Ancient", stars: [1000000, 1400000, 1800000, 2200000, 2600000] },
+      { tier: "T7", name: "Divine", stars: [3000000, 4400000, 5800000, 7200000, 8600000] },
+      { tier: "T8", name: "Immortal", stars: [10000000, 15000000, 20000000, 25000000, 30000000] }
+    ];
+
+    function applyFactionTheme(faction) {
+      const f = (faction || "").toLowerCase();
+      const target = (f === "radiant" || f === "dire") ? f : "neutral";
+      if (document.documentElement.getAttribute("data-faction") !== target) {
+        document.documentElement.setAttribute("data-faction", target);
+      }
+    }
+
+    function selectRegisterFaction(side) {
+      selectedFaction = side;
+      const radBtn = document.getElementById("pickRadiantBtn");
+      const direBtn = document.getElementById("pickDireBtn");
+      const shell = document.getElementById("factionSlashShell");
+      if (side === "radiant") {
+        radBtn.style.opacity = "1";
+        radBtn.style.filter = "none";
+        direBtn.style.opacity = "0.45";
+        direBtn.style.filter = "grayscale(35%)";
+        if (shell) {
+          shell.style.borderColor = "#75B832";
+          shell.style.boxShadow = "0 0 16px rgba(117, 184, 50, 0.28)";
+        }
+      } else {
+        direBtn.style.opacity = "1";
+        direBtn.style.filter = "none";
+        radBtn.style.opacity = "0.45";
+        radBtn.style.filter = "grayscale(35%)";
+        if (shell) {
+          shell.style.borderColor = "#D93B2B";
+          shell.style.boxShadow = "0 0 16px rgba(217, 59, 43, 0.30)";
+        }
+      }
+    }
+
+    function switchTab(tab) {
+      activeTabId = tab;
+      const tabs = [
+        { id: "miner", panel: "tabMiner", nav: "navMiner" },
+        { id: "ranks", panel: "tabRanks", nav: null },
+        { id: "settings", panel: "tabSettings", nav: "navSettings" }
+      ];
+      tabs.forEach(t => {
+        const panelEl = document.getElementById(t.panel);
+        if (panelEl) {
+          panelEl.classList.toggle("hidden", t.id !== tab);
+        }
+        if (t.nav) {
+          const navEl = document.getElementById(t.nav);
+          if (navEl) {
+            navEl.className = t.id === tab ? "nav-tab nav-tab-active" : "nav-tab";
+          }
+        }
+      });
+    }
+
+    function formatMB(bytes) {
+      return (Number(bytes || 0) / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    async function getStatus() {
+      if (window.go && window.go.main && window.go.main.App) {
+        return await window.go.main.App.GetStatus();
+      }
+      const res = await fetch("/api/local/status");
+      return await res.json();
+    }
+
+    async function togglePause() {
+      let s;
+      if (window.go && window.go.main && window.go.main.App) {
+        s = await window.go.main.App.TogglePause();
+      } else {
+        const res = await fetch("/api/local/toggle-pause", { method: "POST" });
+        s = await res.json();
+      }
+      renderStatus(s);
+    }
+
+    async function savePrefs() {
+      const payload = {
+        server_url: document.getElementById("prefServerUrl").value,
+        preferred_region: document.getElementById("prefRegion").value,
+        pause_on_gaming: document.getElementById("prefPauseOnGaming").checked,
+        gaming_parse_behavior: document.getElementById("prefGamingBehavior").value,
+        idle_policy: document.getElementById("prefIdlePolicy").value,
+        idle_threshold_seconds: Math.max(1, parseInt(document.getElementById("prefIdleMinutes").value, 10) || 5) * 60,
+        watched_processes: document.getElementById("prefWatchedProcs").value.split(",").map(s => s.trim()).filter(Boolean),
+        max_daily_bandwidth_mb: parseInt(document.getElementById("prefMaxBw").value, 10) || 0,
+        download_speed_limit_kbps: 0,
+        stratz_api_key: document.getElementById("prefStratzKey").value.trim(),
+        opendota_api_key: document.getElementById("prefOpenDotaKey").value.trim()
+      };
+
+      let s;
+      if (window.go && window.go.main && window.go.main.App) {
+        s = await window.go.main.App.SavePreferences(payload);
+      } else {
+        const res = await fetch("/api/local/preferences", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        s = await res.json();
+      }
+      renderStatus(s);
+      const msg = document.getElementById("saveMsg");
+      msg.textContent = s.connected ? "✓ Saved & connected to coordinator" : "⚠ Saved (coordinator unreachable)";
+      setTimeout(() => (msg.textContent = ""), 3500);
+    }
+
+    async function testConnectionNow() {
+      const url = document.getElementById("prefServerUrl").value.trim();
+      const box = document.getElementById("configConnBox");
+      box.textContent = `Testing connection to ${url}...`;
+      box.className = "px-3 py-2 recessed-box text-xs mono-num text-[var(--text-secondary)]";
+
+      let s;
+      if (window.go && window.go.main && window.go.main.App && window.go.main.App.TestServerConnection) {
+        s = await window.go.main.App.TestServerConnection(url);
+      } else {
+        const res = await fetch("/api/local/test-connection", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ server_url: url })
+        });
+        s = await res.json();
+      }
+      renderStatus(s);
+    }
+
+    function setAuthMode(mode) {
+      authMode = mode;
+      const regTab = document.getElementById("authTabRegister");
+      const loginTab = document.getElementById("authTabLogin");
+      const factionBlock = document.getElementById("authFactionBlock");
+      const title = document.getElementById("authModalTitle");
+      const btn = document.getElementById("authSubmitBtn");
+      document.getElementById("authErrorBox").classList.add("hidden");
+      if (mode === "register") {
+        regTab.className = "flex-1 py-1.5 rounded-sm bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--accent-secondary)]/40 font-medium transition";
+        loginTab.className = "flex-1 py-1.5 rounded-sm text-[var(--text-secondary)] transition";
+        factionBlock.classList.remove("hidden");
+        title.textContent = "Create Account";
+        btn.textContent = "Create";
+        selectRegisterFaction(selectedFaction);
+      } else {
+        regTab.className = "flex-1 py-1.5 rounded-sm text-[var(--text-secondary)] transition";
+        loginTab.className = "flex-1 py-1.5 rounded-sm bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--accent-secondary)]/40 font-medium transition";
+        factionBlock.classList.add("hidden");
+        title.textContent = "Sign In";
+        btn.textContent = "Sign In";
+      }
+    }
+
+    let serverConnected = false;
+    let currentServerURL = "";
+
+    function updateAuthServerUI(s) {
+      serverConnected = !!(s && s.connected && s.server_url);
+      currentServerURL = (s && (s.server_url || (s.config && s.config.server_url))) || "";
+      const statusEl = document.getElementById("authServerStatus");
+      const submitBtn = document.getElementById("authSubmitBtn");
+      if (statusEl) {
+        if (serverConnected) {
+          statusEl.textContent = `Connected (${currentServerURL})`;
+          statusEl.className = "mono-num text-[11px] text-[#75B832]";
+        } else if (currentServerURL) {
+          statusEl.textContent = `Offline (${currentServerURL})`;
+          statusEl.className = "mono-num text-[11px] text-[#F46253]";
+        } else {
+          statusEl.textContent = "Not connected — enter server URL";
+          statusEl.className = "mono-num text-[11px] text-[#E87A24]";
+        }
+      }
+      if (submitBtn) {
+        submitBtn.disabled = !serverConnected;
+        submitBtn.classList.toggle("opacity-45", !serverConnected);
+        submitBtn.classList.toggle("cursor-not-allowed", !serverConnected);
+      }
+    }
+
+    async function connectAuthServer() {
+      const url = document.getElementById("authServerUrl").value.trim();
+      const errBox = document.getElementById("authErrorBox");
+      const btn = document.getElementById("authConnectBtn");
+      errBox.classList.add("hidden");
+      if (!url) {
+        errBox.textContent = "✕ Enter a Coordinator server URL first (e.g. https://example.com)";
+        errBox.classList.remove("hidden");
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Connecting...";
+      try {
+        let s;
+        if (window.go && window.go.main && window.go.main.App && window.go.main.App.TestServerConnection) {
+          s = await window.go.main.App.TestServerConnection(url);
+        } else {
+          const res = await fetch("/api/local/test-connection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ server_url: url })
+          });
+          s = await res.json();
+        }
+        renderStatus(s);
+        if (!s.connected) {
+          errBox.textContent = "✕ Could not reach server at " + url;
+          errBox.classList.remove("hidden");
+        }
+      } catch (err) {
+        errBox.textContent = "✕ " + (err && err.message ? err.message : String(err));
+        errBox.classList.remove("hidden");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Connect";
+      }
+    }
+
+    function openAuthModal() {
+      setAuthMode("register");
+      document.getElementById("authPasswordInput").value = "";
+      const srvInput = document.getElementById("authServerUrl");
+      if (srvInput && !srvInput.value.trim() && currentServerURL) {
+        srvInput.value = currentServerURL;
+      }
+      document.getElementById("authModal").classList.remove("hidden");
+    }
+
+    async function onAccountAction() {
+      if (currentAuthState) {
+        let s;
+        if (window.go && window.go.main && window.go.main.App && window.go.main.App.AuthLogout) {
+          s = await window.go.main.App.AuthLogout();
+        } else {
+          const res = await fetch("/api/local/auth/logout", { method: "POST" });
+          s = await res.json();
+        }
+        renderStatus(s);
+      } else {
+        openAuthModal();
+      }
+    }
+
+    async function submitAuthForm() {
+      const nickname = document.getElementById("authNicknameInput").value.trim();
+      const password = document.getElementById("authPasswordInput").value;
+      const errBox = document.getElementById("authErrorBox");
+      const btn = document.getElementById("authSubmitBtn");
+      errBox.classList.add("hidden");
+      btn.disabled = true;
+      btn.textContent = "Please wait...";
+
+      try {
+        let s;
+        if (window.go && window.go.main && window.go.main.App) {
+          s = authMode === "register"
+            ? await window.go.main.App.AuthRegister(nickname, password, selectedFaction)
+            : await window.go.main.App.AuthLogin(nickname, password);
+        } else {
+          const endpoint = authMode === "register" ? "/api/local/auth/register" : "/api/local/auth/login";
+          const payload = authMode === "register"
+            ? { nickname, password, faction: selectedFaction }
+            : { nickname, password };
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Authentication failed");
+          s = data;
+        }
+        document.getElementById("authPasswordInput").value = "";
+        document.getElementById("authModal").classList.add("hidden");
+        renderStatus(s);
+      } catch (err) {
+        errBox.textContent = "✕ " + (err && err.message ? err.message : String(err));
+        errBox.classList.remove("hidden");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = authMode === "register" ? "Create" : "Sign In";
+      }
+    }
+
+    async function dismissAuthPrompt() {
+      let s;
+      if (window.go && window.go.main && window.go.main.App && window.go.main.App.DismissAuthPrompt) {
+        s = await window.go.main.App.DismissAuthPrompt();
+      } else {
+        const res = await fetch("/api/local/auth/dismiss", { method: "POST" });
+        s = await res.json();
+      }
+      document.getElementById("authModal").classList.add("hidden");
+      renderStatus(s);
+    }
+
+    async function reprobeRegions() {
+      const btn = document.getElementById("reprobeBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Probing...";
+      }
+      try {
+        let s;
+        if (window.go && window.go.main && window.go.main.App && window.go.main.App.ReprobeRegions) {
+          s = await window.go.main.App.ReprobeRegions();
+        } else {
+          const res = await fetch("/api/local/reprobe-regions", { method: "POST" });
+          s = await res.json();
+        }
+        renderStatus(s);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Re-probe Latency";
+        }
+      }
+    }
+
+    function renderFactionSplit(factions) {
+      const radXP = Number(factions && factions.radiant ? factions.radiant.xp : 0);
+      const direXP = Number(factions && factions.dire ? factions.dire.xp : 0);
+      const total = radXP + direXP;
+      const radPct = total > 0 ? (radXP / total) * 100 : 50;
+      const direPct = 100 - radPct;
+      const visualRad = total > 0 ? Math.min(88, Math.max(12, radPct)) : 50;
+
+      document.getElementById("vsRadXP").textContent = radXP.toLocaleString();
+      document.getElementById("vsDireXP").textContent = direXP.toLocaleString();
+      document.getElementById("vsRadPct").textContent = radPct.toFixed(1) + "%";
+      document.getElementById("vsDirePct").textContent = direPct.toFixed(1) + "%";
+      document.getElementById("vsBarRadiant").style.width = visualRad + "%";
+      document.getElementById("vsBarDire").style.width = (100 - visualRad) + "%";
+      document.getElementById("vsBarSlash").style.left = visualRad + "%";
+    }
+
+    function renderStatus(s) {
+      if (!s) return;
+
+      const userFaction = s.authenticated ? (s.account_faction || "") : "";
+      applyFactionTheme(userFaction);
+      renderFactionSplit(s.factions);
+
+      if (!authModalChecked) {
+        authModalChecked = true;
+        if (!s.authenticated && !s.prompted_auth) {
+          openAuthModal();
+        }
+      }
+
+      // Sidebar Account, Allegiance & Standing Card
+      currentAuthState = !!s.authenticated;
+      const accNameEl = document.getElementById("accountNameText");
+      const accSubEl = document.getElementById("accountFactionSub");
+      const accBadgeEl = document.getElementById("accountModeBadge");
+      const accBtnEl = document.getElementById("accountActionBtn");
+
+      if (s.authenticated) {
+        accNameEl.textContent = s.account_nickname || "Contributor";
+        if (userFaction === "radiant") {
+          accSubEl.textContent = "Sworn to The Radiant";
+          accBadgeEl.textContent = "RADIANT";
+          accBadgeEl.className = "text-[10px] font-semibold px-1.5 py-0.5 rounded-sm bg-[#18261F] text-[#94D94E] border border-[#75B832]/50 shrink-0 mono-num";
+        } else if (userFaction === "dire") {
+          accSubEl.textContent = "Sworn to The Dire";
+          accBadgeEl.textContent = "DIRE";
+          accBadgeEl.className = "text-[10px] font-semibold px-1.5 py-0.5 rounded-sm bg-[#24171A] text-[#F46253] border border-[#D93B2B]/50 shrink-0 mono-num";
+        } else {
+          accSubEl.textContent = "Unaligned Account";
+          accBadgeEl.textContent = "NEUTRAL";
+          accBadgeEl.className = "text-[10px] font-medium px-1.5 py-0.5 rounded-sm bg-[#1F252D] text-[#C8A252] border border-[#2B333E] shrink-0 mono-num";
+        }
+        accBtnEl.textContent = "Sign Out";
+        accBtnEl.className = "flex-1 py-1.5 px-2.5 btn-secondary text-[11px]";
+      } else {
+        accNameEl.textContent = "Anonymous";
+        accSubEl.textContent = "Unaligned · Local XP";
+        accBadgeEl.textContent = "LOCAL";
+        accBadgeEl.className = "text-[10px] font-medium px-1.5 py-0.5 rounded-sm bg-[#1F252D] text-[#96A0AB] border border-[#2B333E] shrink-0 mono-num";
+        accBtnEl.textContent = "Login / Sign Up";
+        accBtnEl.className = "flex-1 py-1.5 px-2.5 btn-primary text-[11px]";
+      }
+
+      // Sidebar Rank & XP
+      const tierCode = s.contributor_rank_icon || "T1.1";
+      const starNum = (tierCode.split(".")[1]) || "1";
+      document.getElementById("rankTierCode").textContent = tierCode;
+      document.getElementById("lvlBadge").textContent = `${starNum}/5 Stars`;
+      document.getElementById("rankTitle").textContent = s.contributor_rank || "Herald";
+      document.getElementById("streakBadge").textContent = `${s.streak_days || 1}d streak`;
+      document.getElementById("xpProgressBar").style.width = `${Math.min(100, Math.max(4, s.rank_progress_percent || 0))}%`;
+      document.getElementById("xpText").textContent = `${(s.contributor_xp || 0).toLocaleString()} / ${(s.next_rank_xp || 50).toLocaleString()} XP`;
+
+      // Top Status Bar
+      const activeTarget = (s.target_region === "AUTO" && s.region_priority && s.region_priority.length > 0)
+        ? `AUTO (${s.region_priority[0]})`
+        : (s.target_region || "AUTO");
+      document.getElementById("headerRegion").textContent = activeTarget;
+
+      // Regional Relay Latency Grid
+      const latGrid = document.getElementById("regionLatencyGrid");
+      const reprobeBtn = document.getElementById("reprobeBtn");
+      if (reprobeBtn && s.probing_regions) {
+        reprobeBtn.disabled = true;
+        reprobeBtn.textContent = "Probing...";
+      } else if (reprobeBtn && reprobeBtn.textContent === "Probing..." && !s.probing_regions) {
+        reprobeBtn.disabled = false;
+        reprobeBtn.textContent = "Re-probe Latency";
+      }
+      if (latGrid && s.region_latencies && s.region_latencies.length > 0) {
+        latGrid.innerHTML = s.region_latencies.map((item, idx) => {
+          const isTop = idx === 0 && item.reachable;
+          const borderCls = isTop
+            ? "border-[var(--accent-secondary)] bg-[var(--bg-elevated)] text-[var(--text-accent)]"
+            : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]";
+          const valText = item.reachable ? `${item.latency_ms}ms` : "timeout";
+          return `<div class="px-2.5 py-1.5 rounded-sm border ${borderCls} flex items-center justify-between"><span>${idx + 1}. ${item.region}</span><span>${valText}</span></div>`;
+        }).join("");
+      }
+
+      const saltEl = document.getElementById("headerSaltStatus");
+      if (s.salt_quota) {
+        const odSuffix = s.salt_quota.opendota_configured ? "Key" : `${s.salt_quota.opendota_remaining_day} left`;
+        if (s.salt_quota.mode === "CLIENT_STRATZ") {
+          saltEl.textContent = `STRATZ → OpenDota (${odSuffix})`;
+          saltEl.className = "text-[var(--text-accent)] font-medium mono-num";
+        } else if (s.salt_quota.mode === "SERVER_ASSISTED") {
+          saltEl.textContent = `Server Fallback (retry ${s.salt_quota.next_probe_seconds}s)`;
+          saltEl.className = "text-[#E87A24] font-medium mono-num";
+        } else {
+          saltEl.textContent = s.salt_quota.opendota_configured
+            ? `OpenDota (API Key)`
+            : `OpenDota ${s.salt_quota.opendota_remaining_day}/3000`;
+          saltEl.className = "text-[var(--text-primary)] font-medium mono-num";
+        }
+      }
+
+      // Semantic Status Badge (§1 Critical UX Rule: Antique Gold + Bone/Crimson with distinct icons, never raw green/red alone)
+      const srvUrl = (s.server_url || (s.config && s.config.server_url) || "").trim();
+      const stateBadge = document.getElementById("stateBadge");
+      const stateIcon = document.getElementById("stateIcon");
+      const stateHeadline = document.getElementById("stateHeadline");
+      const st = s.state || "READY";
+      const label = s.state_label || "Ready";
+      const ping = s.server_latency_ms || 1;
+      const queued = s.server_queued_jobs || 0;
+
+      if (!srvUrl) {
+        stateBadge.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-sm text-xs font-medium bg-[var(--bg-elevated)] text-[#E6C87E] border border-[#C8A252]/45 mono-num";
+        stateIcon.innerHTML = `<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`;
+        stateHeadline.textContent = "No Server Configured";
+      } else if (st === "SERVER_DISCONNECTED" || (!s.connected && !s.user_paused && !(s.config && s.config.pause_on_gaming && s.game_running) && st !== "DAILY_BANDWIDTH_QUOTA_REACHED" && st !== "WAITING_FOR_PC_IDLE" && st !== "PROBING_REGIONS")) {
+        stateBadge.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-sm text-xs font-medium bg-[#24171A] text-[#ECEAE4] border border-[#BF2E1A] mono-num";
+        stateIcon.innerHTML = `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`;
+        stateHeadline.textContent = `${label} · ${srvUrl}`;
+      } else if (
+        st === "PAUSED_BY_USER" ||
+        st === "PAUSED_GAME_RUNNING" ||
+        st === "PAUSED_HOLDING_IN_RAM" ||
+        st === "DRAINING_DOWNLOAD_GAME_DETECTED" ||
+        st === "DAILY_BANDWIDTH_QUOTA_REACHED" ||
+        st === "WAITING_FOR_PC_IDLE" ||
+        st === "PROBING_REGIONS"
+      ) {
+        stateBadge.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-sm text-xs font-medium bg-[var(--bg-elevated)] text-[#E6C87E] border border-[#C8A252]/60 mono-num";
+        stateIcon.innerHTML = `<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>`;
+        stateHeadline.textContent = label;
+      } else if (st === "ACTIVE" || st === "ACTIVE_TURBO_IDLE" || st === "GAMING_ECO_SLOWDOWN") {
+        stateBadge.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-sm text-xs font-medium bg-[var(--bg-elevated)] text-[#E6C87E] border border-[#D4B978] mono-num";
+        stateIcon.innerHTML = `<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>`;
+        stateHeadline.textContent = label;
+      } else {
+        stateBadge.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-sm text-xs font-medium bg-[var(--bg-elevated)] text-[#D4B978] border border-[#C8A252]/45 mono-num";
+        stateIcon.innerHTML = `<polyline points="20 6 9 17 4 12"/>`;
+        stateHeadline.textContent = `${label} · ${queued} queued`;
+      }
+
+      const configConnBox = document.getElementById("configConnBox");
+      if (!srvUrl) {
+        configConnBox.className = "px-3 py-2 recessed-box border-[#2B333E] text-xs mono-num text-[#96A0AB]";
+        configConnBox.textContent = "No server configured — enter a Coordinator URL above and click Test Connection";
+      } else if (s.connected) {
+        configConnBox.className = "px-3 py-2 recessed-box border-[#C8A252]/50 text-xs mono-num text-[#E6C87E]";
+        configConnBox.textContent = `✓ Connected to ${srvUrl}`;
+      } else {
+        configConnBox.className = "px-3 py-2 recessed-box border-[#BF2E1A] text-xs mono-num text-[#ECEAE4]";
+        configConnBox.textContent = `✕ Cannot reach ${srvUrl} — Ensure central-server.exe is running`;
+      }
+
+      const banner = document.getElementById("alertBanner");
+      if (s.active_alert_banner) {
+        banner.textContent = s.active_alert_banner;
+        banner.classList.remove("hidden");
+      } else {
+        banner.classList.add("hidden");
+      }
+
+      // Telemetry Charts & Parsed Counter
+      document.getElementById("statYourToday").textContent = (s.your_parsed_today || 0).toLocaleString();
+      document.getElementById("statYourTotal").textContent = (s.total_parsed_all_time || 0).toLocaleString();
+      renderTelemetryCharts(s);
+
+      // Active Pipeline Panel
+      const matchTitle = document.getElementById("currentMatchTitle");
+      if (s.current_match_id > 0) {
+        matchTitle.textContent = `Match #${s.current_match_id} (Cluster ${s.current_cluster})`;
+      } else {
+        matchTitle.textContent = "Waiting for match lease";
+      }
+      const parserLabel = s.active_parser_name || "default (2.0.0)";
+      document.getElementById("parserBadge").textContent = parserLabel;
+
+      const pct = Number(s.progress_percent || 0);
+      document.getElementById("stagePercentText").textContent = `${s.current_stage || "IDLE"} · ${pct.toFixed(0)}%`;
+      renderPillProgress(pct, s.current_stage);
+
+      const activeStepStyle = "px-2.5 py-2 rounded-sm border border-[var(--accent-secondary)] bg-[var(--bg-elevated)] text-[11px] font-semibold text-[var(--text-accent)]";
+      const idleStepStyle = "px-2.5 py-2 rounded-sm recessed-box text-[11px] font-medium text-[var(--text-muted)]";
+      document.getElementById("stepLease").className = s.current_match_id > 0 ? activeStepStyle : idleStepStyle;
+      document.getElementById("stepDownload").className = s.current_stage === "DOWNLOADING" ? activeStepStyle : idleStepStyle;
+      document.getElementById("stepParse").className = (s.current_stage === "PARSING" || s.current_stage === "HOLDING_RAM") ? activeStepStyle : idleStepStyle;
+      document.getElementById("stepSubmit").className = (s.current_stage === "PARSING" && pct >= 95) ? activeStepStyle : idleStepStyle;
+
+      const maxGB = s.max_daily_bandwidth_mb > 0 ? (s.max_daily_bandwidth_mb / 1024).toFixed(0) + " GB" : "Unlimited";
+      document.getElementById("bwMeterText").textContent = `${formatMB(s.used_bandwidth_today_bytes)} / ${maxGB}`;
+
+      // Activity Log
+      const feed = s.activity_feed || [];
+      const feedEl = document.getElementById("activityFeedList");
+      feedEl.innerHTML = feed.map(item => {
+        let tagColor = "text-[var(--accent-secondary)]";
+        if (item.category === "XP") tagColor = "text-[#E6C87E]";
+        else if (item.category === "PARSE") tagColor = "text-[var(--text-accent)]";
+        else if (item.category === "GUARD") tagColor = "text-[#E87A24]";
+        return `<div class="leading-relaxed"><span class="text-[var(--text-muted)]">${item.timestamp}</span> <span class="${tagColor} font-semibold">${item.category}</span> <span class="text-[var(--text-primary)]">${item.message}</span></div>`;
+      }).join("");
+
+      // Contributor Standing View (8 Tiers x 5 Stars)
+      const xp = s.contributor_xp || 0;
+      const activeCode = s.contributor_rank_icon || "T1.1";
+      document.getElementById("rankTiersGrid").innerHTML = RANK_TIERS.map(t => {
+        const tierUnlocked = xp >= t.stars[0];
+        let unlockedStars = 0;
+        t.stars.forEach(req => { if (xp >= req) unlockedStars++; });
+        const starPips = t.stars.map((req, i) => {
+          const filled = i < unlockedStars;
+          return `<span class="inline-block w-2 h-2 rounded-xs ${filled ? 'bg-[var(--accent-secondary)]' : 'bg-[var(--border-subtle)]'}"></span>`;
+        }).join("");
+        const starRows = t.stars.map((req, idx) => {
+          const code = `${t.tier}.${idx + 1}`;
+          const isCurrent = code === activeCode;
+          const isDone = xp >= req;
+          return `
+            <div class="flex items-center justify-between text-[11px] mono-num px-1.5 py-0.5 rounded-xs ${isCurrent ? 'bg-[var(--bg-surface)] text-[var(--accent-secondary)] font-semibold border border-[var(--accent-secondary)]/50' : (isDone ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]')}">
+              <span>${code}</span>
+              <span>${req.toLocaleString()} XP</span>
+            </div>
+          `;
+        }).join("");
+
+        return `
+          <div class="p-3.5 rounded-sm border ${tierUnlocked ? 'bg-[var(--bg-elevated)] border-[var(--accent-secondary)] text-[var(--text-primary)]' : 'recessed-box text-[var(--text-muted)]'} space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <span class="mono-num text-[11px] font-semibold ${tierUnlocked ? 'text-[var(--accent-secondary)]' : 'text-[var(--text-muted)]'}">${t.tier}</span>
+                <div class="dota-heading text-sm font-semibold">${t.name}</div>
+              </div>
+              <div class="flex items-center gap-1" title="${unlockedStars}/5 Stars">${starPips}</div>
+            </div>
+            <div class="space-y-1 pt-2 border-t border-[var(--border-subtle)]">${starRows}</div>
+          </div>
+        `;
+      }).join("");
+
+      // Pause Button
+      const pBtn = document.getElementById("pauseBtn");
+      if (s.user_paused) {
+        pBtn.textContent = "Resume Worker";
+        pBtn.className = "w-full py-2 px-3 btn-primary text-xs";
+      } else {
+        pBtn.textContent = "Pause Worker";
+        pBtn.className = "w-full py-2 px-3 btn-secondary text-xs";
+      }
+
+      if (s.config && s.config.worker_id) {
+        document.getElementById("footerWorkerId").textContent = s.config.worker_id;
+      }
+
+      updateAuthServerUI(s);
+
+      if (!prefsInitialized && s.config) {
+        document.getElementById("prefServerUrl").value = s.config.server_url || "";
+        document.getElementById("prefRegion").value = s.config.preferred_region || "AUTO";
+        document.getElementById("prefPauseOnGaming").checked = !!s.config.pause_on_gaming;
+        document.getElementById("prefGamingBehavior").value = s.config.gaming_parse_behavior || "HOLD_IN_RAM";
+        document.getElementById("prefIdlePolicy").value = s.config.idle_policy || "TURBO_WHEN_IDLE";
+        document.getElementById("prefIdleMinutes").value = String(Math.max(1, Math.round((s.config.idle_threshold_seconds || 300) / 60)));
+        document.getElementById("prefWatchedProcs").value = (s.config.watched_processes || []).join(", ");
+        document.getElementById("prefMaxBw").value = String(s.config.max_daily_bandwidth_mb ?? 10240);
+        document.getElementById("prefStratzKey").value = s.config.stratz_api_key || "";
+        document.getElementById("prefOpenDotaKey").value = s.config.opendota_api_key || "";
+        prefsInitialized = true;
+        syncConfigFieldStates();
+      }
+    }
+
+    function syncConfigFieldStates() {
+      const guardOn = !!document.getElementById("prefPauseOnGaming").checked;
+      const guardFields = document.getElementById("gamerGuardFields");
+      const watchedEl = document.getElementById("prefWatchedProcs");
+      const behaviorEl = document.getElementById("prefGamingBehavior");
+      if (guardFields) {
+        guardFields.classList.toggle("opacity-45", !guardOn);
+        guardFields.classList.toggle("pointer-events-none", !guardOn);
+      }
+      if (watchedEl) watchedEl.disabled = !guardOn;
+      if (behaviorEl) behaviorEl.disabled = !guardOn;
+
+      const idlePolicy = document.getElementById("prefIdlePolicy").value;
+      const idleEnabled = idlePolicy !== "ALWAYS_RUN";
+      const idleWrap = document.getElementById("prefIdleMinutesWrap");
+      const idleMinEl = document.getElementById("prefIdleMinutes");
+      if (idleWrap) {
+        idleWrap.classList.toggle("opacity-45", !idleEnabled);
+        idleWrap.classList.toggle("pointer-events-none", !idleEnabled);
+      }
+      if (idleMinEl) idleMinEl.disabled = !idleEnabled;
+    }
+
+    function renderLineChart(svgEl, values, strokeColor, gradId) {
+      if (!svgEl) return;
+      const w = 260, h = 88, padX = 6, padY = 10;
+      const grid = `
+        <line x1="0" y1="${h * 0.25}" x2="${w}" y2="${h * 0.25}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+        <line x1="0" y1="${h * 0.55}" x2="${w}" y2="${h * 0.55}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+        <line x1="0" y1="${h * 0.85}" x2="${w}" y2="${h * 0.85}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      `;
+      if (!values || values.length === 0) {
+        svgEl.innerHTML = grid + `<text x="${w / 2}" y="${h / 2 + 3}" text-anchor="middle" fill="#5B6470" font-size="10" font-family="JetBrains Mono, monospace">Waiting for match data</text>`;
+        return;
+      }
+
+      const maxVal = Math.max(...values, 1);
+      const minVal = Math.min(...values, 0);
+      const span = Math.max(maxVal - minVal, maxVal * 0.15, 1);
+      const pts = values.map((v, i) => {
+        const x = values.length === 1 ? w / 2 : padX + (i / (values.length - 1)) * (w - padX * 2);
+        const y = h - padY - ((v - minVal) / span) * (h - padY * 2);
+        return [x.toFixed(1), y.toFixed(1)];
+      });
+
+      const linePts = pts.map(p => p.join(",")).join(" ");
+      const areaPts = `${pts[0][0]},${h - 2} ${linePts} ${pts[pts.length - 1][0]},${h - 2}`;
+      const last = pts[pts.length - 1];
+
+      svgEl.innerHTML = `
+        <defs>
+          <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${strokeColor}" stop-opacity="0.32"/>
+            <stop offset="100%" stop-color="${strokeColor}" stop-opacity="0.02"/>
+          </linearGradient>
+        </defs>
+        ${grid}
+        ${values.length > 1 ? `<polygon points="${areaPts}" fill="url(#${gradId})"/>` : ""}
+        ${values.length > 1 ? `<polyline points="${linePts}" fill="none" stroke="${strokeColor}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>` : ""}
+        <circle cx="${last[0]}" cy="${last[1]}" r="3" fill="${strokeColor}"/>
+      `;
+    }
+
+    function renderBarChart(svgEl, points, barColor) {
+      if (!svgEl) return;
+      const w = 260, h = 88, padX = 6, padY = 8;
+      const grid = `
+        <line x1="0" y1="${h * 0.25}" x2="${w}" y2="${h * 0.25}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+        <line x1="0" y1="${h * 0.55}" x2="${w}" y2="${h * 0.55}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+        <line x1="0" y1="${h - 4}" x2="${w}" y2="${h - 4}" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      `;
+      if (!points || points.length === 0) {
+        svgEl.innerHTML = grid;
+        return;
+      }
+
+      const maxCount = Math.max(...points.map(p => Number(p.count || 0)), 1);
+      const slotW = (w - padX * 2) / points.length;
+      const barW = Math.min(20, Math.max(6, slotW - 4));
+
+      const bars = points.map((p, i) => {
+        const val = Number(p.count || 0);
+        const barH = val > 0 ? Math.max(4, (val / maxCount) * (h - padY * 2)) : 2;
+        const x = padX + i * slotW + (slotW - barW) / 2;
+        const y = h - 4 - barH;
+        const opacity = val > 0 ? "0.9" : "0.25";
+        return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="1" fill="${barColor}" fill-opacity="${opacity}"/>`;
+      }).join("");
+
+      svgEl.innerHTML = grid + bars;
+    }
+
+    function renderTelemetryCharts(s) {
+      const metrics = s.match_metrics || [];
+      const timeline = s.parsed_timeline || [];
+
+      const tpsValues = metrics.map(m => Number(m.ticks_per_second || 0));
+      const dlValues = metrics.map(m => Number(m.download_mbps || 0));
+
+      renderLineChart(document.getElementById("chartThroughput"), tpsValues, "var(--accent-secondary)", "gradTPS");
+      renderLineChart(document.getElementById("chartDownload"), dlValues, "var(--text-accent)", "gradDL");
+      renderBarChart(document.getElementById("chartParsedTime"), timeline, "var(--accent-secondary)");
+
+      if (metrics.length > 0) {
+        const firstIdx = "#" + metrics[0].index;
+        const lastIdx = "#" + metrics[metrics.length - 1].index;
+        const lastM = metrics[metrics.length - 1];
+        document.getElementById("chartThroughputStart").textContent = firstIdx;
+        document.getElementById("chartThroughputEnd").textContent = lastIdx;
+        document.getElementById("chartThroughputLast").textContent = Number(lastM.ticks_per_second || 0).toLocaleString() + " t/s";
+
+        document.getElementById("chartDownloadStart").textContent = firstIdx;
+        document.getElementById("chartDownloadEnd").textContent = lastIdx;
+        document.getElementById("chartDownloadLast").textContent = Number(lastM.download_mbps || 0).toFixed(2) + " MB/s";
+      } else {
+        document.getElementById("chartThroughputStart").textContent = "#1";
+        document.getElementById("chartThroughputEnd").textContent = "—";
+        document.getElementById("chartThroughputLast").textContent = "—";
+
+        document.getElementById("chartDownloadStart").textContent = "#1";
+        document.getElementById("chartDownloadEnd").textContent = "—";
+        document.getElementById("chartDownloadLast").textContent = "—";
+      }
+
+      if (timeline.length > 0) {
+        const lastT = timeline[timeline.length - 1];
+        document.getElementById("chartParsedStart").textContent = timeline[0].label;
+        document.getElementById("chartParsedEnd").textContent = lastT.label;
+        document.getElementById("chartParsedLast").textContent = `${lastT.count || 0}/min`;
+      }
+    }
+
+    function initPillProgress() {
+      const container = document.getElementById("pillProgressBar");
+      if (!container || container.children.length > 0) return;
+      for (let i = 0; i < 24; i++) {
+        const seg = document.createElement("div");
+        seg.className = "pill-seg";
+        seg.style.setProperty("--pill-delay", `${i * 45}ms`);
+        container.appendChild(seg);
+      }
+    }
+
+    function renderPillProgress(pct, stage) {
+      const container = document.getElementById("pillProgressBar");
+      if (!container) return;
+      if (container.children.length === 0) initPillProgress();
+      const clampedPct = Math.max(0, Math.min(100, Number(pct) || 0));
+      const filledCount = Math.round((clampedPct / 100) * 24);
+      const isFlowing = clampedPct > 0 && stage !== "IDLE" && stage !== "HOLDING_RAM";
+      container.classList.toggle("pill-progress-flowing", isFlowing);
+      const segs = container.children;
+      for (let i = 0; i < segs.length; i++) {
+        segs[i].classList.toggle("pill-seg-filled", i < filledCount);
+      }
+    }
+
+    async function tick() {
+      try {
+        const s = await getStatus();
+        renderStatus(s);
+      } catch (e) {}
+    }
+
+    selectRegisterFaction("radiant");
+    syncConfigFieldStates();
+    initPillProgress();
+    tick();
+    setInterval(tick, 450);
+  </script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/central-server/central-server
+/desktop-worker/dota-analytics-worker
+/desktop-worker/build/bin/
+
+# Runtime data (accounts, API keys, matches, uploaded parsers, cached runtimes).
+# The server writes ./data relative to its working directory, so match at any depth.
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+api_keys.json
+admin_ui_state.json
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Go
+vendor/
+go.work
+go.work.sum
+coverage.out
+*.coverprofile
+
+# Wails / frontend tooling
+node_modules/
+desktop-worker/frontend/wailsjs/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
