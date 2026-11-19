@@ -759,6 +759,10 @@
                 <option value="0">Unlimited</option>
               </select>
             </div>
+            <div>
+              <label for="prefSpeedLimit" class="block text-xs text-[var(--text-secondary)] mb-1.5">Download Speed Limit (KB/s · 0 = Unlimited)</label>
+              <input id="prefSpeedLimit" type="number" min="0" step="100" value="0" placeholder="0 (Unlimited)" class="input-field mono-num" />
+            </div>
           </div>
 
           <div class="flex items-center justify-between pt-2">
@@ -972,7 +976,7 @@
         idle_threshold_seconds: Math.max(1, parseInt(document.getElementById("prefIdleMinutes").value, 10) || 5) * 60,
         watched_processes: document.getElementById("prefWatchedProcs").value.split(",").map(s => s.trim()).filter(Boolean),
         max_daily_bandwidth_mb: parseInt(document.getElementById("prefMaxBw").value, 10) || 0,
-        download_speed_limit_kbps: 0,
+        download_speed_limit_kbps: Math.max(0, parseInt(document.getElementById("prefSpeedLimit").value, 10) || 0),
         stratz_api_key: document.getElementById("prefStratzKey").value.trim(),
         opendota_api_key: document.getElementById("prefOpenDotaKey").value.trim()
       };
@@ -1484,6 +1488,7 @@
         document.getElementById("prefIdleMinutes").value = String(Math.max(1, Math.round((s.config.idle_threshold_seconds || 300) / 60)));
         document.getElementById("prefWatchedProcs").value = (s.config.watched_processes || []).join(", ");
         document.getElementById("prefMaxBw").value = String(s.config.max_daily_bandwidth_mb ?? 10240);
+        document.getElementById("prefSpeedLimit").value = String(s.config.download_speed_limit_kbps ?? 0);
         document.getElementById("prefStratzKey").value = s.config.stratz_api_key || "";
         document.getElementById("prefOpenDotaKey").value = s.config.opendota_api_key || "";
         prefsInitialized = true;

@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,7 +48,6 @@ type SinkStats struct {
 type AnalyticsStore struct {
 	storageDir string
 	indexPath  string
-	configPath string
 	httpClient *http.Client
 
 	recordCh chan models.StoredMatchRecord
@@ -54,6 +56,8 @@ type AnalyticsStore struct {
 	sinkCfg          SinkConfig
 	recentRecords    []models.StoredMatchRecord
 	maxRecent        int
+	rawReplays       map[uint64][]byte
+	rawReplayOrder   []uint64
 	totalParsed      atomic.Uint64
 	todayParsed      atomic.Uint64
 	webhookDelivered atomic.Uint64
@@ -75,13 +79,13 @@ func NewAnalyticsStore(storageDir string, initialWebhookURL string) *AnalyticsSt
 	s := &AnalyticsStore{
 		storageDir: storageDir,
 		indexPath:  filepath.Join(storageDir, "_index.jsonl"),
-		configPath: filepath.Join(storageDir, "_sink_config.json"),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 		recordCh:      make(chan models.StoredMatchRecord, 5000),
 		recentRecords: make([]models.StoredMatchRecord, 0, 200),
 		maxRecent:     200,
+		rawReplays:    make(map[uint64][]byte),
 		sinkCfg: SinkConfig{
 			WebhookURL:         initialWebhookURL,
 			WebhookEnabled:     initialWebhookURL != "",
@@ -92,7 +96,6 @@ func NewAnalyticsStore(storageDir string, initialWebhookURL string) *AnalyticsSt
 		subscribers: make(map[chan models.StoredMatchRecord]struct{}),
 	}
 
-	s.loadSinkConfig()
 	s.loadExistingIndex()
 	log.Printf("[Storage] File storage active at %s (restored %d parsed matches)", storageDir, s.totalParsed.Load())
 	return s
@@ -103,19 +106,7 @@ func (s *AnalyticsStore) Start(ctx context.Context) {
 	go s.workerLoop(ctx)
 }
 
-func (s *AnalyticsStore) loadSinkConfig() {
-	raw, err := os.ReadFile(s.configPath)
-	if err != nil {
-		return
-	}
-	cfg := SinkConfig{FileStorageEnabled: true}
-	if err := json.Unmarshal(raw, &cfg); err == nil {
-		cfg.StorageDir = s.storageDir
-		s.sinkCfg = cfg
-	}
-}
-
-// UpdateSinkConfig updates and persists the external webhook settings.
+// UpdateSinkConfig updates the in-memory external webhook settings.
 func (s *AnalyticsStore) UpdateSinkConfig(webhookURL string, enabled bool) SinkConfig {
 	s.mu.Lock()
 	s.sinkCfg.WebhookURL = webhookURL
@@ -126,13 +117,10 @@ func (s *AnalyticsStore) UpdateSinkConfig(webhookURL string, enabled bool) SinkC
 	cfg := s.sinkCfg
 	s.mu.Unlock()
 
-	if raw, err := json.MarshalIndent(cfg, "", "  "); err == nil {
-		_ = os.WriteFile(s.configPath, raw, 0o644)
-	}
 	return cfg
 }
 
-// SetFileStorageEnabled enables or disables writing parsed match JSON files to disk.
+// SetFileStorageEnabled enables or disables writing parsed match files to disk in memory.
 func (s *AnalyticsStore) SetFileStorageEnabled(enabled bool) SinkConfig {
 	s.mu.Lock()
 	s.sinkCfg.FileStorageEnabled = enabled
@@ -141,9 +129,6 @@ func (s *AnalyticsStore) SetFileStorageEnabled(enabled bool) SinkConfig {
 	cfg := s.sinkCfg
 	s.mu.Unlock()
 
-	if raw, err := json.MarshalIndent(cfg, "", "  "); err == nil {
-		_ = os.WriteFile(s.configPath, raw, 0o644)
-	}
 	return cfg
 }
 
@@ -218,47 +203,132 @@ func (s *AnalyticsStore) loadExistingIndex() {
 	s.todayParsed.Store(today)
 }
 
-// EnqueueRecords saves match records to `<storageDir>/<match_id>.json`, updates the index,
-// broadcasts to live stream subscribers, and forwards to the configured external webhook.
+// EnqueueRecords saves match records to `<storageDir>/<match_id>.json` (and `<match_id>.dem.bz2` for raw passthrough),
+// updates the index, broadcasts to live stream subscribers, and forwards to the configured external webhook.
 func (s *AnalyticsStore) EnqueueRecords(records []models.StoredMatchRecord) {
 	if len(records) == 0 {
 		return
 	}
+
+	type rawItem struct {
+		rawBytes   []byte
+		compactRec models.StoredMatchRecord
+		fullRec    models.StoredMatchRecord
+	}
+	items := make([]rawItem, 0, len(records))
 
 	s.mu.Lock()
 	for i := range records {
 		if records[i].CreatedAt.IsZero() {
 			records[i].CreatedAt = time.Now().UTC()
 		}
-		rec := records[i]
-		s.recentRecords = append([]models.StoredMatchRecord{rec}, s.recentRecords...)
+		rawBytes, compactRec := extractRawReplayBytes(records[i])
+		s.recentRecords = append([]models.StoredMatchRecord{compactRec}, s.recentRecords...)
 		if len(s.recentRecords) > s.maxRecent {
 			s.recentRecords = s.recentRecords[:s.maxRecent]
 		}
+		if len(rawBytes) > 0 {
+			s.cacheRawReplayLocked(records[i].MatchID, rawBytes)
+		}
 		s.totalParsed.Add(1)
 		s.todayParsed.Add(1)
+		items = append(items, rawItem{rawBytes: rawBytes, compactRec: compactRec, fullRec: records[i]})
 	}
+	saveToFile := s.sinkCfg.FileStorageEnabled
 	s.mu.Unlock()
 
-	s.mu.RLock()
-	saveToFile := s.sinkCfg.FileStorageEnabled
-	s.mu.RUnlock()
-
-	for _, r := range records {
+	for _, item := range items {
 		// Write to disk synchronously when file storage is enabled so immediate GET /api/v1/matches/:id reads succeed
 		if saveToFile {
-			if err := s.writeMatchFile(r); err != nil {
-				log.Printf("[Storage] Failed writing match %d file: %v", r.MatchID, err)
+			if len(item.rawBytes) > 0 {
+				if err := s.writeRawReplayFile(item.compactRec.MatchID, item.rawBytes); err != nil {
+					log.Printf("[Storage] Failed writing raw replay %d.dem.bz2: %v", item.compactRec.MatchID, err)
+				}
+			}
+			if err := s.writeMatchFile(item.compactRec); err != nil {
+				log.Printf("[Storage] Failed writing match %d file: %v", item.compactRec.MatchID, err)
 			}
 		}
-		s.broadcastToSubscribers(r)
+		s.broadcastToSubscribers(item.fullRec)
 
 		select {
-		case s.recordCh <- r:
+		case s.recordCh <- item.fullRec:
 		default:
-			go s.forwardToWebhook(context.Background(), r)
+			go s.forwardToWebhook(context.Background(), item.fullRec)
 		}
 	}
+}
+
+func extractRawReplayBytes(rec models.StoredMatchRecord) ([]byte, models.StoredMatchRecord) {
+	if rec.ParserName != "raw" || len(rec.Payload) == 0 {
+		return nil, rec
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(rec.Payload, &obj); err != nil {
+		return nil, rec
+	}
+	b64, _ := obj["data_base64"].(string)
+	if b64 == "" {
+		return nil, rec
+	}
+	rawBytes, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, rec
+	}
+	shaHex, _ := obj["sha256"].(string)
+	if shaHex == "" {
+		sum := sha256.Sum256(rawBytes)
+		shaHex = hex.EncodeToString(sum[:])
+	}
+	compactPayload, _ := json.Marshal(map[string]any{
+		"mode":                  "raw",
+		"match_id":              rec.MatchID,
+		"cluster":               rec.Cluster,
+		"region":                rec.Region,
+		"format":                "dem.bz2",
+		"compressed_size_bytes": len(rawBytes),
+		"sha256":                shaHex,
+		"file":                  fmt.Sprintf("%d.dem.bz2", rec.MatchID),
+	})
+	rec.Payload = compactPayload
+	return rawBytes, rec
+}
+
+func (s *AnalyticsStore) cacheRawReplayLocked(matchID uint64, raw []byte) {
+	if _, exists := s.rawReplays[matchID]; !exists {
+		s.rawReplayOrder = append(s.rawReplayOrder, matchID)
+	}
+	s.rawReplays[matchID] = raw
+	for len(s.rawReplayOrder) > 8 {
+		oldest := s.rawReplayOrder[0]
+		s.rawReplayOrder = s.rawReplayOrder[1:]
+		delete(s.rawReplays, oldest)
+	}
+}
+
+func (s *AnalyticsStore) writeRawReplayFile(matchID uint64, raw []byte) error {
+	finalPath := filepath.Join(s.storageDir, fmt.Sprintf("%d.dem.bz2", matchID))
+	tmpPath := finalPath + ".tmp"
+	if err := os.WriteFile(tmpPath, raw, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, finalPath)
+}
+
+// GetRawReplayByID reads `<storageDir>/<match_id>.dem.bz2` from disk or recent in-memory raw replay cache.
+func (s *AnalyticsStore) GetRawReplayByID(matchID uint64) ([]byte, error) {
+	path := filepath.Join(s.storageDir, fmt.Sprintf("%d.dem.bz2", matchID))
+	if raw, err := os.ReadFile(path); err == nil {
+		return raw, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if raw, ok := s.rawReplays[matchID]; ok {
+		cp := make([]byte, len(raw))
+		copy(cp, raw)
+		return cp, nil
+	}
+	return nil, os.ErrNotExist
 }
 
 func (s *AnalyticsStore) writeMatchFile(rec models.StoredMatchRecord) error {

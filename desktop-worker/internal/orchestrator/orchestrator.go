@@ -1,16 +1,15 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"math"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +28,40 @@ import (
 // XPPerMatch matches the central server's flat per-match contributor XP rate.
 const XPPerMatch uint64 = 50
 
-const benchmarkBz2Base64 = "QlpoOTFBWSZTWVjtQx8AACqbgFAEfxAAAK5t3qogAFDGAAAAAGqeUGR6mmQGnqZpDu0A69qbZXc7EWt+8ZROWMQOH0FJkpjVwqMVcpBiRmRJm/uEKoGNUJzk5G4R+H1rfi7kinChILHahj4="
+// RawParserSHA256 identifies workers returning the raw downloaded .dem.bz2 replay without parsing.
+const RawParserSHA256 = "builtin-raw-replay-v1"
+
+type rawReplayPassthroughParser struct{}
+
+func (r *rawReplayPassthroughParser) Name() string    { return "raw" }
+func (r *rawReplayPassthroughParser) Version() string { return "1.0.0" }
+
+func (r *rawReplayPassthroughParser) Parse(_ context.Context, ctrl parser.ExecutionController, input parser.ParseInput) (*parser.ParseOutput, error) {
+	sum := sha256.Sum256(input.CompressedBz2)
+	shaHex := hex.EncodeToString(sum[:])
+	if ctrl != nil {
+		ctrl.ReportProgress(100.0)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"mode":                  "raw",
+		"match_id":              input.MatchID,
+		"cluster":               input.Cluster,
+		"region":                input.Region,
+		"format":                "dem.bz2",
+		"compressed_size_bytes": len(input.CompressedBz2),
+		"sha256":                shaHex,
+		"data_base64":           base64.StdEncoding.EncodeToString(input.CompressedBz2),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &parser.ParseOutput{
+		ParserName:    r.Name(),
+		ParserVersion: r.Version(),
+		ParserSHA256:  RawParserSHA256,
+		Payload:       payload,
+	}, nil
+}
 
 // WorkerState describes the current high-level state of the Desktop Worker.
 type WorkerState string
@@ -228,7 +260,6 @@ type Orchestrator struct {
 	activeAlertBanner   string
 	lastError           string
 	activityFeed        []ActivityEvent
-	benchmarkRunning    bool
 }
 
 // NewOrchestrator creates a new desktop worker Orchestrator.
@@ -399,13 +430,26 @@ func (o *Orchestrator) syncActiveParser(ctx context.Context, serverURL string, d
 	o.mu.RUnlock()
 
 	if mode == "default" || strings.EqualFold(desc.ID, "default") || strings.EqualFold(desc.ReportedName, "default") {
-		wasCustom := hasServerCustom || (cur != nil && strings.EqualFold(cur.Mode, "custom"))
+		wasCustom := hasServerCustom || (cur != nil && (strings.EqualFold(cur.Mode, "custom") || strings.EqualFold(cur.Mode, "raw")))
 		o.mu.Lock()
 		o.serverCustomParser = nil
 		o.serverParserDesc = cloneParserDescriptor(desc)
 		if wasCustom {
 			o.parserGen++
 			o.appendLogLocked("PARSE", "Active parser switched to server default")
+		}
+		o.mu.Unlock()
+		return
+	}
+
+	if mode == "raw" || strings.EqualFold(desc.ID, "raw") || strings.EqualFold(desc.ReportedName, "raw") {
+		wasRaw := hasServerCustom && cur != nil && strings.EqualFold(cur.Mode, "raw")
+		o.mu.Lock()
+		o.serverCustomParser = &rawReplayPassthroughParser{}
+		o.serverParserDesc = cloneParserDescriptor(desc)
+		if !wasRaw {
+			o.parserGen++
+			o.appendLogLocked("PARSE", "Active parser switched to raw replay passthrough (no parsing)")
 		}
 		o.mu.Unlock()
 		return
@@ -527,105 +571,6 @@ func (o *Orchestrator) ToggleUserPaused() bool {
 	}
 	o.mu.Unlock()
 	return val
-}
-
-// TriggerBenchmarkOrDemo runs an immediate in-RAM benchmark replay parse (or requests a demo batch if connected).
-func (o *Orchestrator) TriggerBenchmarkOrDemo() {
-	o.mu.Lock()
-	if o.benchmarkRunning || o.currentMatchID != 0 {
-		o.mu.Unlock()
-		return
-	}
-	o.benchmarkRunning = true
-	o.userPaused = false
-	o.mu.Unlock()
-
-	go func() {
-		defer func() {
-			o.mu.Lock()
-			o.benchmarkRunning = false
-			o.mu.Unlock()
-		}()
-
-		cfg := o.cfgMgr.Get()
-		req, err := http.NewRequest(http.MethodPost, cfg.ServerURL+"/api/v1/admin/inject-demo-batch", nil)
-		if err == nil {
-			httpClient := &http.Client{Timeout: 2 * time.Second}
-			if resp, err := httpClient.Do(req); err == nil {
-				_ = resp.Body.Close()
-				o.appendLog("LEASE", "Queued 5 demo jobs on central server")
-				return
-			}
-		}
-
-		matchID := uint64(7900500000 + time.Now().Unix()%90000)
-		o.appendLog("LEASE", fmt.Sprintf("Benchmark started for match #%d (cluster 133)", matchID))
-
-		block, _ := base64.StdEncoding.DecodeString(benchmarkBz2Base64)
-		repeats := 2400
-		buf := bytes.NewBuffer(make([]byte, 0, len(block)*repeats))
-		for i := 0; i < repeats; i++ {
-			buf.Write(block)
-		}
-		fullBz2 := buf.Bytes()
-		totalSize := int64(len(fullBz2))
-
-		o.mu.Lock()
-		o.currentMatchID = matchID
-		o.currentCluster = 133
-		o.currentStage = "DOWNLOADING"
-		o.totalDLBytes = totalSize
-		o.downloadedBytes = 0
-		o.progressPct = 0
-		o.ticksPerSec = 0
-		o.mu.Unlock()
-
-		steps := 12
-		for i := 1; i <= steps; i++ {
-			time.Sleep(85 * time.Millisecond)
-			dl := (totalSize * int64(i)) / int64(steps)
-			o.mu.Lock()
-			o.downloadedBytes = dl
-			o.ramBufferBytes = dl
-			o.progressPct = float64(i) / float64(steps) * 100.0
-			o.mu.Unlock()
-		}
-		o.cfgMgr.AddBandwidthBytes(uint64(totalSize))
-		o.appendLog("RAM", fmt.Sprintf("Buffered %.1f KB in RAM", float64(totalSize)/1024.0))
-
-		o.mu.Lock()
-		o.currentStage = "PARSING"
-		o.progressPct = 0
-		o.ticksPerSec = 21450
-		o.mu.Unlock()
-
-		activeParser := o.resolveActiveParser(cfg)
-		_, err = activeParser.Parse(context.Background(), o, parser.ParseInput{
-			MatchID:         matchID,
-			Cluster:         133,
-			Region:          cfg.PreferredRegion,
-			DurationHintSec: 2145,
-			CompressedBz2:   fullBz2,
-		})
-
-		o.mu.Lock()
-		o.currentMatchID = 0
-		o.currentCluster = 0
-		o.currentStage = "IDLE"
-		o.progressPct = 0
-		o.ticksPerSec = 0
-		o.ramBufferBytes = 0
-		o.globalParsedTotal++
-		o.globalParsedToday++
-		o.mu.Unlock()
-
-		if err == nil {
-			xp := XPPerMatch
-			o.cfgMgr.RecordMatchParsed(xp, 12)
-			o.appendLog("PARSE", fmt.Sprintf("Completed match #%d via %s (64,350 ticks)", matchID, activeParser.Name()))
-			o.appendLog("XP", fmt.Sprintf("+%d XP awarded", xp))
-		}
-	}()
 }
 
 // Start runs the background stats/XP poller, initial regional latency probe (if uncached), and main worker loop.
@@ -863,7 +808,7 @@ func (o *Orchestrator) refreshServerStats(ctx context.Context) {
 
 func (o *Orchestrator) canStartNewDownload() bool {
 	o.mu.RLock()
-	paused := o.userPaused || o.benchmarkRunning
+	paused := o.userPaused
 	o.mu.RUnlock()
 	if paused {
 		return false

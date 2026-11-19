@@ -26,6 +26,7 @@ import (
 
 const (
 	DefaultParserSHA256 = "builtin-default-v2"
+	RawParserSHA256     = "builtin-raw-replay-v1"
 
 	pythonWasmURL    = "https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/python/3.12.0%2B20231211-040d5a6/python-3.12.0.wasm"
 	pythonWasmSHA256 = "e5dc5a398b07b54ea8fdb503bf68fb583d533f10ec3f930963e02b9505f7a763"
@@ -106,7 +107,7 @@ func (m *Manager) load() {
 	if loaded.ActiveID == "" {
 		loaded.ActiveID = "default"
 	}
-	if loaded.ActiveID != "default" {
+	if loaded.ActiveID != "default" && loaded.ActiveID != "raw" {
 		if _, ok := loaded.Parsers[loaded.ActiveID]; !ok {
 			loaded.ActiveID = "default"
 		}
@@ -122,6 +123,13 @@ func (m *Manager) saveLocked() error {
 	return os.WriteFile(m.statePath, raw, 0o644)
 }
 
+// SaveState persists the current active parser selection to disk.
+func (m *Manager) SaveState() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.saveLocked()
+}
+
 func (m *Manager) defaultDescriptorLocked() models.ParserDescriptor {
 	return models.ParserDescriptor{
 		Mode:         "default",
@@ -135,6 +143,19 @@ func (m *Manager) defaultDescriptorLocked() models.ParserDescriptor {
 	}
 }
 
+func (m *Manager) rawDescriptorLocked() models.ParserDescriptor {
+	return models.ParserDescriptor{
+		Mode:         "raw",
+		ID:           "raw",
+		Name:         "raw",
+		ReportedName: "raw",
+		Kind:         "raw",
+		Revision:     m.state.GlobalRevision,
+		SHA256:       RawParserSHA256,
+		UpdatedAt:    time.Now().UTC(),
+	}
+}
+
 // GetActive returns a copy of the currently configured parser descriptor.
 func (m *Manager) GetActive() models.ParserDescriptor {
 	m.mu.RLock()
@@ -142,6 +163,9 @@ func (m *Manager) GetActive() models.ParserDescriptor {
 
 	if m.state.ActiveID == "default" {
 		return m.defaultDescriptorLocked()
+	}
+	if m.state.ActiveID == "raw" {
+		return m.rawDescriptorLocked()
 	}
 	desc, ok := m.state.Parsers[m.state.ActiveID]
 	if !ok {
@@ -157,6 +181,8 @@ func (m *Manager) ListAll() (active models.ParserDescriptor, custom []models.Par
 
 	if m.state.ActiveID == "default" {
 		active = m.defaultDescriptorLocked()
+	} else if m.state.ActiveID == "raw" {
+		active = m.rawDescriptorLocked()
 	} else if d, ok := m.state.Parsers[m.state.ActiveID]; ok {
 		active = d
 	} else {
@@ -183,6 +209,19 @@ func (m *Manager) ActivateDefault() (models.ParserDescriptor, error) {
 	return m.defaultDescriptorLocked(), nil
 }
 
+// ActivateRaw switches the pipeline to omit parsing and have workers return raw .dem.bz2 replays.
+func (m *Manager) ActivateRaw() (models.ParserDescriptor, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.state.GlobalRevision++
+	m.state.ActiveID = "raw"
+	if err := m.saveLocked(); err != nil {
+		return models.ParserDescriptor{}, err
+	}
+	return m.rawDescriptorLocked(), nil
+}
+
 // ActivateCustom activates a previously uploaded custom parser by ID.
 func (m *Manager) ActivateCustom(id string) (models.ParserDescriptor, error) {
 	cleanID := strings.ToLower(strings.TrimSpace(id))
@@ -201,6 +240,35 @@ func (m *Manager) ActivateCustom(id string) (models.ParserDescriptor, error) {
 	if err := m.saveLocked(); err != nil {
 		return models.ParserDescriptor{}, err
 	}
+	return desc, nil
+}
+
+// ActivateEphemeral activates either "default" or a custom parser ID in memory without writing state.json.
+func (m *Manager) ActivateEphemeral(id string) (models.ParserDescriptor, error) {
+	cleanID := strings.ToLower(strings.TrimSpace(id))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if cleanID == "" || cleanID == "default" {
+		m.state.GlobalRevision++
+		m.state.ActiveID = "default"
+		return m.defaultDescriptorLocked(), nil
+	}
+	if cleanID == "raw" || cleanID == "none" {
+		m.state.GlobalRevision++
+		m.state.ActiveID = "raw"
+		return m.rawDescriptorLocked(), nil
+	}
+
+	desc, ok := m.state.Parsers[cleanID]
+	if !ok {
+		return models.ParserDescriptor{}, fmt.Errorf("custom parser %q not found", id)
+	}
+	m.state.GlobalRevision++
+	desc.Revision = m.state.GlobalRevision
+	desc.UpdatedAt = time.Now().UTC()
+	m.state.Parsers[cleanID] = desc
+	m.state.ActiveID = cleanID
 	return desc, nil
 }
 
@@ -265,6 +333,12 @@ func (m *Manager) MatchesActive(reportedName, reportedSHA256 string) bool {
 		}
 		return sha == "" || sha == active.SHA256
 	}
+	if active.Mode == "raw" {
+		if name != "raw" {
+			return false
+		}
+		return sha == "" || sha == active.SHA256
+	}
 
 	// Custom parser requires exact "custom(<name>)" AND matching SHA-256 digest so edits under
 	// the same name invalidate stale workers cleanly.
@@ -282,8 +356,8 @@ func (m *Manager) UploadCustom(ctx context.Context, rawName, filename string, so
 		base := filepath.Base(filename)
 		name = strings.TrimSuffix(base, filepath.Ext(base))
 	}
-	if !validNameRe.MatchString(name) || strings.EqualFold(name, "default") {
-		return models.ParserDescriptor{}, errors.New("parser name must be 2-40 characters (letters, digits, _, -), and cannot be 'default'")
+	if !validNameRe.MatchString(name) || strings.EqualFold(name, "default") || strings.EqualFold(name, "raw") || strings.EqualFold(name, "none") {
+		return models.ParserDescriptor{}, errors.New("parser name must be 2-40 characters (letters, digits, _, -), and cannot be 'default', 'raw', or 'none'")
 	}
 	if len(sourceBytes) == 0 {
 		return models.ParserDescriptor{}, errors.New("uploaded parser file is empty")

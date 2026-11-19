@@ -92,11 +92,25 @@ func generateWorkerID() string {
 	return "worker-" + hex.EncodeToString(b)
 }
 
+func cloneConfig(c WorkerConfig) WorkerConfig {
+	if len(c.WatchedProcesses) > 0 {
+		c.WatchedProcesses = append([]string(nil), c.WatchedProcesses...)
+	}
+	if len(c.RegionPriority) > 0 {
+		c.RegionPriority = append([]string(nil), c.RegionPriority...)
+	}
+	if len(c.RegionLatencies) > 0 {
+		c.RegionLatencies = append([]netprobe.RegionLatency(nil), c.RegionLatencies...)
+	}
+	return c
+}
+
 // Manager provides thread-safe access and disk persistence for WorkerConfig.
 type Manager struct {
-	mu       sync.RWMutex
-	cfg      WorkerConfig
-	filePath string
+	mu        sync.RWMutex
+	cfg       WorkerConfig
+	persisted WorkerConfig
+	filePath  string
 }
 
 // NewManager loads or initializes WorkerConfig from the OS user config directory.
@@ -110,12 +124,15 @@ func NewManager(customPath string) *Manager {
 		path = filepath.Join(dir, "Dota2ReplayCourier", "config.json")
 	}
 
+	def := DefaultConfig()
 	m := &Manager{
-		cfg:      DefaultConfig(),
-		filePath: path,
+		cfg:       cloneConfig(def),
+		persisted: cloneConfig(def),
+		filePath:  path,
 	}
 	m.load()
 	m.checkDailyResetLocked()
+	m.persisted = cloneConfig(m.cfg)
 	return m
 }
 
@@ -126,14 +143,22 @@ func (m *Manager) load() {
 	}
 	var loaded WorkerConfig
 	if err := json.Unmarshal(raw, &loaded); err == nil {
-		if loaded.ServerURL != "" {
-			m.cfg = loaded
-		}
+		def := DefaultConfig()
+		m.cfg = loaded
 		if m.cfg.WorkerID == "" {
 			m.cfg.WorkerID = generateWorkerID()
 		}
 		if m.cfg.PreferredRegion == "" {
-			m.cfg.PreferredRegion = "AUTO"
+			m.cfg.PreferredRegion = def.PreferredRegion
+		}
+		if m.cfg.GamingParseBehavior == "" {
+			m.cfg.GamingParseBehavior = def.GamingParseBehavior
+		}
+		if m.cfg.IdlePolicy == "" {
+			m.cfg.IdlePolicy = def.IdlePolicy
+		}
+		if m.cfg.MaxDailyBandwidthMB < 0 {
+			m.cfg.MaxDailyBandwidthMB = 0
 		}
 		if m.cfg.AuthToken == "" && m.cfg.AnonymousXP == 0 && m.cfg.ContributorXP > 0 {
 			m.cfg.AnonymousXP = m.cfg.ContributorXP
@@ -144,10 +169,10 @@ func (m *Manager) load() {
 	}
 }
 
-// Save writes the current configuration to disk.
+// Save writes the persisted configuration to disk.
 func (m *Manager) Save() error {
 	m.mu.RLock()
-	raw, err := json.MarshalIndent(m.cfg, "", "  ")
+	raw, err := json.MarshalIndent(m.persisted, "", "  ")
 	m.mu.RUnlock()
 	if err != nil {
 		return err
@@ -163,7 +188,7 @@ func (m *Manager) Get() WorkerConfig {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.checkDailyResetLocked()
-	return m.cfg
+	return cloneConfig(m.cfg)
 }
 
 // Update modifies the configuration and persists it to disk.
@@ -171,10 +196,30 @@ func (m *Manager) Update(fn func(*WorkerConfig)) WorkerConfig {
 	m.mu.Lock()
 	m.checkDailyResetLocked()
 	fn(&m.cfg)
-	snapshot := m.cfg
+	fn(&m.persisted)
+	snapshot := cloneConfig(m.cfg)
 	m.mu.Unlock()
 	_ = m.Save()
 	return snapshot
+}
+
+// UpdateEphemeral modifies the active in-memory configuration without persisting to disk.
+func (m *Manager) UpdateEphemeral(fn func(*WorkerConfig)) WorkerConfig {
+	m.mu.Lock()
+	m.checkDailyResetLocked()
+	fn(&m.cfg)
+	snapshot := cloneConfig(m.cfg)
+	m.mu.Unlock()
+	return snapshot
+}
+
+// SaveCurrentToDisk copies the active in-memory configuration (including session overrides) to disk.
+func (m *Manager) SaveCurrentToDisk() error {
+	m.mu.Lock()
+	m.checkDailyResetLocked()
+	m.persisted = cloneConfig(m.cfg)
+	m.mu.Unlock()
+	return m.Save()
 }
 
 // AddBandwidthBytes records downloaded bytes against today's bandwidth quota.
@@ -182,6 +227,7 @@ func (m *Manager) AddBandwidthBytes(n uint64) {
 	m.mu.Lock()
 	m.checkDailyResetLocked()
 	m.cfg.UsedBandwidthTodayBytes += n
+	m.persisted.UsedBandwidthTodayBytes += n
 	m.mu.Unlock()
 }
 
@@ -189,14 +235,18 @@ func (m *Manager) AddBandwidthBytes(n uint64) {
 func (m *Manager) RecordMatchParsed(xpGain uint64, wardsCount uint64) uint64 {
 	m.mu.Lock()
 	m.checkDailyResetLocked()
-	m.cfg.ParsedTodayCount++
-	m.cfg.TotalParsedAllTime++
-	m.cfg.ContributorXP += xpGain
-	if m.cfg.AuthToken == "" {
-		m.cfg.AnonymousXP = m.cfg.ContributorXP
+	applyParsed := func(c *WorkerConfig) uint64 {
+		c.ParsedTodayCount++
+		c.TotalParsedAllTime++
+		c.ContributorXP += xpGain
+		if c.AuthToken == "" {
+			c.AnonymousXP = c.ContributorXP
+		}
+		c.WardsExtractedTotal += wardsCount
+		return c.ParsedTodayCount
 	}
-	m.cfg.WardsExtractedTotal += wardsCount
-	val := m.cfg.ParsedTodayCount
+	val := applyParsed(&m.cfg)
+	_ = applyParsed(&m.persisted)
 	m.mu.Unlock()
 	_ = m.Save()
 	return val
@@ -252,22 +302,34 @@ func (m *Manager) SyncServerProfile(xp, totalMatches uint64, nickname, faction s
 		return false
 	}
 	changed := false
-	if m.cfg.ContributorXP != xp {
-		m.cfg.ContributorXP = xp
-		changed = true
+	syncTarget := func(c *WorkerConfig, track bool) {
+		if c.ContributorXP != xp {
+			c.ContributorXP = xp
+			if track {
+				changed = true
+			}
+		}
+		if nickname != "" && c.AccountNickname != nickname {
+			c.AccountNickname = nickname
+			if track {
+				changed = true
+			}
+		}
+		if faction != "" && c.AccountFaction != faction {
+			c.AccountFaction = faction
+			if track {
+				changed = true
+			}
+		}
+		if totalMatches > c.TotalParsedAllTime {
+			c.TotalParsedAllTime = totalMatches
+			if track {
+				changed = true
+			}
+		}
 	}
-	if nickname != "" && m.cfg.AccountNickname != nickname {
-		m.cfg.AccountNickname = nickname
-		changed = true
-	}
-	if faction != "" && m.cfg.AccountFaction != faction {
-		m.cfg.AccountFaction = faction
-		changed = true
-	}
-	if totalMatches > m.cfg.TotalParsedAllTime {
-		m.cfg.TotalParsedAllTime = totalMatches
-		changed = true
-	}
+	syncTarget(&m.cfg, true)
+	syncTarget(&m.persisted, false)
 	m.mu.Unlock()
 	if changed {
 		_ = m.Save()
@@ -294,18 +356,22 @@ func (m *Manager) HasBandwidthQuota() bool {
 
 func (m *Manager) checkDailyResetLocked() {
 	today := time.Now().Format("2006-01-02")
-	if m.cfg.BandwidthResetDate != today {
-		yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-		if m.cfg.LastActiveDate == yesterday {
-			m.cfg.StreakDays++
-		} else if m.cfg.LastActiveDate != today {
-			m.cfg.StreakDays = 1
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	applyReset := func(c *WorkerConfig) {
+		if c.BandwidthResetDate != today {
+			if c.LastActiveDate == yesterday {
+				c.StreakDays++
+			} else if c.LastActiveDate != today {
+				c.StreakDays = 1
+			}
+			c.LastActiveDate = today
+			c.BandwidthResetDate = today
+			c.UsedBandwidthTodayBytes = 0
+			c.ParsedTodayCount = 0
 		}
-		m.cfg.LastActiveDate = today
-		m.cfg.BandwidthResetDate = today
-		m.cfg.UsedBandwidthTodayBytes = 0
-		m.cfg.ParsedTodayCount = 0
 	}
+	applyReset(&m.cfg)
+	applyReset(&m.persisted)
 }
 
 // ParserCacheDir returns the local directory used to cache verified server-assigned parser artifacts.

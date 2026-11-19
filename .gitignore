@@ -8,6 +8,7 @@
 *.out
 /central-server/central-server
 /desktop-worker/dota-analytics-worker
+/desktop-worker/dota-worker-cli
 /desktop-worker/build/bin/
 
 # Runtime data (accounts, API keys, matches, uploaded parsers, cached runtimes).
@@ -19,6 +20,9 @@ data/
 *.db-shm
 api_keys.json
 admin_ui_state.json
+admin_auth.json
+filter_config.json
+sink_config.json
 
 # Secrets and local config
 .env

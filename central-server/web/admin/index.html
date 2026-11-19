@@ -261,6 +261,39 @@
 <body class="min-h-screen">
   <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-3.5 py-2.5 rounded-sm bg-[#1F252D] border border-[#C8A252] text-[#ECEAE4] text-xs font-medium shadow-lg"></div>
 
+  <!-- Admin Authentication Gate Overlay -->
+  <div id="adminAuthOverlay" style="z-index: 9500;" class="hidden fixed inset-0 bg-[#0A0D10]/95 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-md panel p-6 border border-[#C8A252] shadow-2xl space-y-4">
+      <div class="flex items-center justify-between gap-2 border-b border-[#2B333E] pb-3">
+        <span class="dota-heading text-sm font-semibold tracking-wider text-[#E6C87E]">Dota2ReplayCourier Admin</span>
+        <span class="px-2 py-0.5 rounded-sm bg-[#C8A252]/15 text-[#E6C87E] border border-[#C8A252]/40 text-[11px] mono-num">Locked</span>
+      </div>
+
+      <div id="adminNoPasswordBox" class="hidden space-y-3">
+        <p class="text-xs text-[#ECEAE4]/90 leading-relaxed">
+          No admin password is set yet. For security, the admin password can only be configured from the <span class="text-[#E6C87E] font-medium">central-server</span> terminal CLI.
+        </p>
+        <div class="recessed-box p-3 text-xs mono-num text-[#ECEAE4]">
+          server&gt; password &lt;your-password&gt;
+        </div>
+        <button type="button" onclick="checkAdminAuthAndLoad()" class="w-full px-4 py-2 btn-primary text-xs">
+          Check Again
+        </button>
+      </div>
+
+      <div id="adminLoginFormBox" class="hidden space-y-3">
+        <div>
+          <label for="adminPasswordInput" class="block text-xs text-[#96A0AB] mb-1.5">Admin Password</label>
+          <input id="adminPasswordInput" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitAdminLogin()" placeholder="Enter admin password" class="input-field mono-num" />
+        </div>
+        <div id="adminAuthError" class="hidden text-xs text-[#F46253] bg-[#24171A] border border-[#BF2E1A] rounded-sm px-3 py-2"></div>
+        <button type="button" onclick="submitAdminLogin()" class="w-full px-4 py-2 btn-primary text-xs">
+          Sign In
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Interactive First-Startup Tutorial Overlay -->
   <div id="tourBackdrop" style="z-index: 9000;" class="hidden fixed inset-0 bg-black/75 transition-opacity"></div>
   <div id="tourCard" style="z-index: 9020;" class="hidden fixed w-[92vw] max-w-md panel p-5 shadow-2xl border border-[#C8A252]">
@@ -285,15 +318,25 @@
       <div class="flex items-center gap-2.5">
         <span class="dota-heading text-sm font-semibold tracking-wider text-[#E6C87E]">Dota2ReplayCourier Coordinator</span>
       </div>
-      <button
-        type="button"
-        onclick="startTour()"
-        title="Open Configuration Tutorial"
-        class="px-2.5 py-1 rounded-sm border border-[#2B333E] bg-[#15191F] hover:border-[#C8A252] text-xs text-[#E6C87E] flex items-center gap-1.5 transition"
-      >
-        <span class="w-4 h-4 rounded-full border border-[#C8A252]/60 flex items-center justify-center text-[10px] font-bold">?</span>
-        <span>Tutorial</span>
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          id="adminLogoutBtn"
+          onclick="logoutAdmin()"
+          class="hidden px-2.5 py-1 rounded-sm border border-[#2B333E] bg-[#15191F] hover:border-[#BF2E1A] text-xs text-[#96A0AB] hover:text-[#F46253] transition"
+        >
+          Sign Out
+        </button>
+        <button
+          type="button"
+          onclick="startTour()"
+          title="Open Configuration Tutorial"
+          class="px-2.5 py-1 rounded-sm border border-[#2B333E] bg-[#15191F] hover:border-[#C8A252] text-xs text-[#E6C87E] flex items-center gap-1.5 transition"
+        >
+          <span class="w-4 h-4 rounded-full border border-[#C8A252]/60 flex items-center justify-center text-[10px] font-bold">?</span>
+          <span>Tutorial</span>
+        </button>
+      </div>
     </div>
 
     <!-- Top KPI Metrics Strip (Includes Harvester Running/Paused Switch) -->
@@ -690,6 +733,7 @@
     let fileStorageEnabled = true;
     let harvesterEnabled = true;
     let overviewInFlight = false;
+    let adminAuthLocked = false;
     let lastResultsKey = "";
     let lastParsersKey = "";
     let lastLeasesKey = "";
@@ -792,6 +836,7 @@
 
     async function fetchOverview(force = false) {
       if (overviewInFlight) return;
+      if (adminAuthLocked && !force) return;
       if (!force && document.hidden) return;
       overviewInFlight = true;
       const controller = new AbortController();
@@ -799,7 +844,15 @@
       try {
         const url = catalogInitialized ? "/api/v1/admin/overview?slim=1" : "/api/v1/admin/overview";
         const res = await fetch(url, { signal: controller.signal });
+        if (res.status === 401) {
+          const errBody = await res.json().catch(() => ({}));
+          adminAuthLocked = true;
+          showAdminAuthOverlay(!!errBody.password_configured);
+          return;
+        }
         if (!res.ok) return;
+        adminAuthLocked = false;
+        document.getElementById("adminAuthOverlay").classList.add("hidden");
         const data = await res.json();
 
         document.getElementById("kpiParsedTotal").textContent = data.stats.global_parsed_total.toLocaleString();
@@ -841,14 +894,20 @@
 
         if (data.api_keys) {
           const ak = data.api_keys;
-          const steamLabel = ak.steam_configured ? "Configured" : "OpenDota fallback";
-          const stratzLabel = ak.stratz_configured ? "Configured (Priority 1)" : "Not set";
-          const odLabel = ak.opendota_configured ? "API Key active" : "Free tier";
+          const steamLabel = ak.steam_configured ? `Configured (${ak.steam_masked || "set"})` : "OpenDota fallback";
+          const stratzLabel = ak.stratz_configured ? `Configured (${ak.stratz_masked || "set"})` : "Not set";
+          const odLabel = ak.opendota_configured ? `Configured (${ak.opendota_masked || "set"})` : "Free tier";
           document.getElementById("serverApiKeyStatus").textContent = `Steam: ${steamLabel} · STRATZ: ${stratzLabel} · OpenDota: ${odLabel}`;
+          document.getElementById("serverSteamKey").placeholder = ak.steam_configured
+            ? `Configured (${ak.steam_masked}) — type new key or 'clear'`
+            : "Optional (blank = OpenDota publicMatches)";
+          document.getElementById("serverStratzKey").placeholder = ak.stratz_configured
+            ? `Configured (${ak.stratz_masked}) — type new key or 'clear'`
+            : "Bearer token (used first when set)";
+          document.getElementById("serverOpenDotaKey").placeholder = ak.opendota_configured
+            ? `Configured (${ak.opendota_masked}) — type new key or 'clear'`
+            : "Optional (blank = free tier)";
           if (!apiKeysInitialized) {
-            document.getElementById("serverSteamKey").value = ak.steam_api_key || "";
-            document.getElementById("serverStratzKey").value = ak.stratz_api_key || "";
-            document.getElementById("serverOpenDotaKey").value = ak.opendota_api_key || "";
             apiKeysInitialized = true;
           }
         }
@@ -927,7 +986,10 @@
               <div class="recessed-box p-3.5">
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs">
                   <div class="flex items-center gap-2.5 mono-num">
-                    <a href="/api/v1/matches/${r.match_id}" target="_blank" class="font-semibold text-[#ECEAE4] hover:text-[#E6C87E] underline underline-offset-4">Match #${r.match_id}.json</a>
+                    ${r.parser_name === "raw"
+                      ? `<a href="/api/v1/matches/${r.match_id}.dem.bz2" target="_blank" class="font-semibold text-[#ECEAE4] hover:text-[#E6C87E] underline underline-offset-4">Match #${r.match_id}.dem.bz2 (Raw Replay)</a>`
+                      : `<a href="/api/v1/matches/${r.match_id}" target="_blank" class="font-semibold text-[#ECEAE4] hover:text-[#E6C87E] underline underline-offset-4">Match #${r.match_id}.json</a>`
+                    }
                     <span class="text-[#96A0AB]">${escapeHtml(r.region)} · Cluster ${r.cluster}</span>
                   </div>
                   <div class="text-[#5B6470] mono-num">
@@ -959,9 +1021,13 @@
 
     function renderParserManager(active, customList) {
       const badge = document.getElementById("activeParserBadge");
+      const isRaw = active && active.mode === "raw";
       const isDefault = !active || active.mode === "default";
       if (badge) {
-        if (isDefault) {
+        if (isRaw) {
+          badge.textContent = `raw (No Parser · .dem.bz2, rev ${active.revision})`;
+          badge.className = "px-2.5 py-1 rounded-sm bg-[#1F252D] text-[#E6C87E] border border-[#C8A252]/60 font-medium";
+        } else if (isDefault) {
           badge.textContent = `default (rev ${active ? active.revision : 1})`;
           badge.className = "px-2.5 py-1 rounded-sm bg-[#1F252D] text-[#E6C87E] border border-[#C8A252]/40 font-medium";
         } else {
@@ -985,10 +1051,19 @@
           }
         </div>
       `);
+      items.push(`
+        <div class="p-3 rounded-sm border ${isRaw ? 'border-[#C8A252] bg-[#1F252D]' : 'border-[#2B333E] bg-[#0A0D10]'} flex items-center justify-between gap-2 text-xs">
+          <div class="font-semibold text-[#ECEAE4] min-w-0">raw <span class="text-[#96A0AB] font-normal">(No Parser — Raw Replay .dem.bz2)</span></div>
+          ${isRaw
+            ? '<span class="px-2 py-1 rounded-sm bg-[#C8A252]/15 text-[#E6C87E] border border-[#C8A252]/35 mono-num text-[11px] shrink-0">Active</span>'
+            : '<button onclick="activateParser(\'raw\', \'raw\')" class="px-2.5 py-1 btn-secondary text-[11px] shrink-0">Activate</button>'
+          }
+        </div>
+      `);
 
       const sorted = [...customList].sort((a, b) => a.name.localeCompare(b.name));
       for (const p of sorted) {
-        const isActive = !isDefault && active.id === p.id;
+        const isActive = !isDefault && !isRaw && active.id === p.id;
         const sizeKB = Math.max(1, Math.round((p.artifact_size || 0) / 1024));
         const shortSHA = p.sha256 ? p.sha256.slice(0, 8) : "";
         items.push(`
@@ -1017,8 +1092,8 @@
         body: JSON.stringify({ mode, id })
       });
       if (res.ok) {
-        showToast(mode === "default" ? "Switched cluster parser to default" : `Activated custom(${id})`);
-        fetchOverview();
+        showToast(mode === "default" ? "Switched cluster parser to default" : mode === "raw" ? "Switched to raw replay passthrough (no parser)" : `Activated custom(${id})`);
+        fetchOverview(true);
       } else {
         const err = await res.json().catch(() => ({}));
         showToast(err.error || "Failed to switch parser");
@@ -1133,17 +1208,30 @@
     }
 
     async function saveServerApiKeys() {
-      const steam = document.getElementById("serverSteamKey").value.trim();
-      const stratz = document.getElementById("serverStratzKey").value.trim();
-      const opendota = document.getElementById("serverOpenDotaKey").value.trim();
+      const steamEl = document.getElementById("serverSteamKey");
+      const stratzEl = document.getElementById("serverStratzKey");
+      const odEl = document.getElementById("serverOpenDotaKey");
+      const steam = steamEl.value.trim();
+      const stratz = stratzEl.value.trim();
+      const opendota = odEl.value.trim();
       const res = await fetch("/api/v1/admin/api-keys", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ steam_api_key: steam, stratz_api_key: stratz, opendota_api_key: opendota })
+        body: JSON.stringify({
+          steam_api_key: steam.toLowerCase() === "clear" ? "" : steam,
+          stratz_api_key: stratz.toLowerCase() === "clear" ? "" : stratz,
+          opendota_api_key: opendota.toLowerCase() === "clear" ? "" : opendota,
+          clear_steam: steam.toLowerCase() === "clear",
+          clear_stratz: stratz.toLowerCase() === "clear",
+          clear_opendota: opendota.toLowerCase() === "clear"
+        })
       });
       if (res.ok) {
+        steamEl.value = "";
+        stratzEl.value = "";
+        odEl.value = "";
         showToast("Server API keys updated");
-        fetchOverview();
+        fetchOverview(true);
       } else {
         showToast("Failed to save server API keys");
       }
@@ -1318,10 +1406,77 @@
       } catch (e) {}
     }
 
+    function showAdminAuthOverlay(passwordConfigured) {
+      document.getElementById("adminAuthOverlay").classList.remove("hidden");
+      document.getElementById("adminNoPasswordBox").classList.toggle("hidden", !!passwordConfigured);
+      document.getElementById("adminLoginFormBox").classList.toggle("hidden", !passwordConfigured);
+      document.getElementById("adminLogoutBtn").classList.add("hidden");
+      if (passwordConfigured) {
+        setTimeout(() => document.getElementById("adminPasswordInput").focus(), 30);
+      }
+    }
+
+    async function checkAdminAuthAndLoad() {
+      try {
+        const res = await fetch("/api/v1/admin/auth/status");
+        if (!res.ok) {
+          fetchOverview(true);
+          return;
+        }
+        const st = await res.json();
+        document.getElementById("adminLogoutBtn").classList.toggle("hidden", !st.auth_required || !st.authenticated);
+        if (!st.auth_required || st.authenticated) {
+          adminAuthLocked = false;
+          document.getElementById("adminAuthOverlay").classList.add("hidden");
+          fetchOverview(true);
+        } else {
+          adminAuthLocked = true;
+          showAdminAuthOverlay(!!st.password_configured);
+        }
+      } catch (e) {
+        fetchOverview(true);
+      }
+    }
+
+    async function submitAdminLogin() {
+      const passEl = document.getElementById("adminPasswordInput");
+      const errEl = document.getElementById("adminAuthError");
+      errEl.classList.add("hidden");
+      const res = await fetch("/api/v1/admin/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passEl.value })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errEl.textContent = data.error || "Sign in failed";
+        errEl.classList.remove("hidden");
+        if (data.password_configured === false) {
+          showAdminAuthOverlay(false);
+        }
+        return;
+      }
+      passEl.value = "";
+      adminAuthLocked = false;
+      document.getElementById("adminAuthOverlay").classList.add("hidden");
+      document.getElementById("adminLogoutBtn").classList.remove("hidden");
+      fetchOverview(true);
+    }
+
+    async function logoutAdmin() {
+      await fetch("/api/v1/admin/auth/logout", { method: "POST" }).catch(() => {});
+      adminAuthLocked = true;
+      tutorialChecked = false;
+      catalogInitialized = false;
+      sinkInitialized = false;
+      apiKeysInitialized = false;
+      showAdminAuthOverlay(true);
+    }
+
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) fetchOverview(true);
+      if (!document.hidden && !adminAuthLocked) fetchOverview(true);
     });
-    fetchOverview(true);
+    checkAdminAuthAndLoad();
     setInterval(() => fetchOverview(false), 3000);
   </script>
 </body>

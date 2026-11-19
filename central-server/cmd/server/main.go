@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -12,6 +15,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/dota2-analytics/central-server/internal/accounts"
 	"github.com/dota2-analytics/central-server/internal/api"
+	"github.com/dota2-analytics/central-server/internal/cli"
 	"github.com/dota2-analytics/central-server/internal/harvester"
 	"github.com/dota2-analytics/central-server/internal/parsers"
 	"github.com/dota2-analytics/central-server/internal/queue"
@@ -21,10 +25,29 @@ import (
 )
 
 func main() {
+	cliFlags, err := cli.ParseFlags(os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		log.Fatalf("Invalid CLI flags: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	fatalf := func(format string, args ...any) {
+		log.SetOutput(os.Stderr)
+		log.Fatalf(format, args...)
+	}
+	if cliFlags.Headless {
+		log.SetOutput(io.Discard)
+	}
+
 	port := getEnv("PORT", "8080")
+	if cliFlags.Set["port"] && cliFlags.Port != "" {
+		port = cliFlags.Port
+	}
 	redisAddr := getEnv("REDIS_ADDR", "")
 	redisPassword := getEnv("REDIS_PASSWORD", "")
 	storageDir := getEnv("STORAGE_DIR", filepath.Join("data", "matches"))
@@ -74,7 +97,7 @@ func main() {
 	if rdb == nil {
 		mr, err := miniredis.Run()
 		if err != nil {
-			log.Fatalf("Failed to start embedded Redis server: %v", err)
+			fatalf("Failed to start embedded Redis server: %v", err)
 		}
 		defer mr.Close()
 		rdb = redis.NewClient(&redis.Options{
@@ -105,25 +128,52 @@ func main() {
 
 	accStore, err := accounts.NewStore(accountsDBPath)
 	if err != nil {
-		log.Fatalf("Failed to initialize SQLite accounts database (%s): %v", accountsDBPath, err)
+		fatalf("Failed to initialize SQLite accounts database (%s): %v", accountsDBPath, err)
 	}
 	defer accStore.Close()
 	log.Printf("[Storage] SQLite accounts database active at %s", accountsDBPath)
 
 	parserMgr, err := parsers.NewManager(parsersDir)
 	if err != nil {
-		log.Fatalf("Failed to initialize parser store (%s): %v", parsersDir, err)
+		fatalf("Failed to initialize parser store (%s): %v", parsersDir, err)
 	}
 	log.Printf("[Parser] Active parser configured as %s (rev=%d)", parserMgr.GetActive().ReportedName, parserMgr.GetActive().Revision)
 
 	srv := api.NewServer(leaseMgr, filterEngine, harv, store, accStore, parserMgr, "")
 	srv.SetAPIKeysPath(apiKeysPath)
+	srv.EnableAdminPasswordAuth(filepath.Join(dataDir, "admin_auth.json"))
+
+	if err := cli.ApplyStartupFlags(cliFlags, filterEngine, harv, store, parserMgr, srv); err != nil {
+		fatalf("Failed to apply startup CLI flags: %v", err)
+	}
+	if !cliFlags.Headless && !srv.HasAdminPassword() {
+		log.Printf("[Security] Admin Console locked — run 'password' in this terminal to set the admin password")
+	}
+
+	if cliFlags.Headless {
+		log.SetOutput(os.Stderr)
+	}
+
+	baseURL := "http://localhost:" + port
+	go cli.RunInteractiveLoop(ctx, os.Stdin, os.Stdout, stop, cli.Dependencies{
+		FilterEngine: filterEngine,
+		Harvester:    harv,
+		Store:        store,
+		LeaseMgr:     leaseMgr,
+		ParserMgr:    parserMgr,
+		Server:       srv,
+		DataDir:      dataDir,
+		BaseURL:      baseURL,
+		Headless:     cliFlags.Headless,
+	})
 
 	go func() {
-		log.Printf("Dota2ReplayCourier Coordinator listening on http://localhost:%s", port)
-		log.Printf("Admin Console:       http://localhost:%s/admin", port)
-		log.Printf("Match File Storage:  %s/<match_id>.json", storageDir)
-		log.Printf("Live Match Stream:   http://localhost:%s/api/v1/stream/matches", port)
+		if !cliFlags.Headless {
+			log.Printf("Dota2ReplayCourier Coordinator listening on %s", baseURL)
+			log.Printf("Admin Console:       %s/admin (type 'help' for terminal CLI commands)", baseURL)
+			log.Printf("Match File Storage:  %s/<match_id>.json", storageDir)
+			log.Printf("Live Match Stream:   %s/api/v1/stream/matches", baseURL)
+		}
 		if err := srv.Listen(":" + port); err != nil {
 			log.Printf("Server stopped: %v", err)
 		}

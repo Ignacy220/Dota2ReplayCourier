@@ -47,12 +47,20 @@ type Server struct {
 	store        *storage.AnalyticsStore
 	accounts     *accounts.Store
 	parsers      *parsers.Manager
-	adminHTML    string
-	apiKeysPath  string
+	adminHTML     string
+	apiKeysPath   string
+	adminDisabled bool
 
 	factionMu       sync.Mutex
 	factionCache    *models.FactionStandings
 	factionCachedAt time.Time
+
+	adminAuthEnabled   bool
+	adminAuthPath      string
+	adminAuthMu        sync.Mutex
+	adminPasswordHash  []byte
+	adminSessions      map[string]time.Time
+	adminLoginAttempts map[string]*loginAttemptWindow
 }
 
 // NewServer creates and configures the Central Server REST API Gateway and Admin UI.
@@ -67,8 +75,8 @@ func NewServer(
 ) *Server {
 	app := fiber.New(fiber.Config{
 		AppName:               "Dota2ReplayCourier Coordinator v1.2.0",
-		DisableStartupMessage: false,
-		BodyLimit:             50 * 1024 * 1024,
+		DisableStartupMessage: true,
+		BodyLimit:             200 * 1024 * 1024,
 	})
 
 	app.Use(cors.New(cors.Config{
@@ -119,12 +127,23 @@ func (s *Server) Listen(addr string) error {
 	return s.app.Listen(addr)
 }
 
+// SetAdminEnabled enables or disables the /admin web UI and /api/v1/admin/* endpoints.
+func (s *Server) SetAdminEnabled(enabled bool) {
+	s.adminDisabled = !enabled
+}
+
 func (s *Server) registerRoutes() {
 	s.app.Get("/", func(c *fiber.Ctx) error {
+		if s.adminDisabled {
+			return c.JSON(fiber.Map{"status": "ok", "mode": "headless"})
+		}
 		return c.Redirect("/admin")
 	})
 
 	s.app.Get("/admin", func(c *fiber.Ctx) error {
+		if s.adminDisabled {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "admin panel disabled in headless mode"})
+		}
 		c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
 		return c.SendString(s.adminHTML)
 	})
@@ -183,6 +202,24 @@ func (s *Server) registerRoutes() {
 
 	// Admin API v1
 	admin := v1.Group("/admin")
+	admin.Use(func(c *fiber.Ctx) error {
+		if s.adminDisabled {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "admin panel disabled in headless mode"})
+		}
+		return c.Next()
+	})
+	admin.Get("/auth/status", s.handleAdminAuthStatus)
+	admin.Post("/auth/login", s.handleAdminAuthLogin)
+	admin.Post("/auth/logout", s.handleAdminAuthLogout)
+	admin.Use(func(c *fiber.Ctx) error {
+		if !s.isRequestAdminAuthenticated(c) {
+			return c.Status(http.StatusUnauthorized).JSON(fiber.Map{
+				"error":               "admin authentication required",
+				"password_configured": s.HasAdminPassword(),
+			})
+		}
+		return c.Next()
+	})
 	admin.Get("/overview", s.handleAdminOverview)
 	admin.Get("/filters", s.handleGetFilters)
 	admin.Put("/filters", s.handleUpdateFilters)
@@ -372,7 +409,7 @@ func (s *Server) handleBatchSubmit(c *fiber.Ctx) error {
 			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid gzip body"})
 		}
 		defer gz.Close()
-		decompressed, err := io.ReadAll(io.LimitReader(gz, 50*1024*1024))
+		decompressed, err := io.ReadAll(io.LimitReader(gz, 200*1024*1024))
 		if err != nil {
 			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "failed to decompress gzip body"})
 		}
@@ -510,11 +547,24 @@ func (s *Server) handleListMatches(c *fiber.Ctx) error {
 }
 
 func (s *Server) handleGetMatchByID(c *fiber.Ctx) error {
-	idStr := c.Params("match_id")
-	idStr = strings.TrimSuffix(idStr, ".json")
+	rawParam := c.Params("match_id")
+	wantRaw := strings.HasSuffix(rawParam, ".dem.bz2") || c.Query("raw") == "1"
+	idStr := strings.TrimSuffix(strings.TrimSuffix(rawParam, ".dem.bz2"), ".json")
 	matchID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid match_id"})
+	}
+	if wantRaw {
+		rawBytes, rErr := s.store.GetRawReplayByID(matchID)
+		if rErr != nil {
+			if os.IsNotExist(rErr) {
+				return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "raw replay not found"})
+			}
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": rErr.Error()})
+		}
+		c.Set("Content-Type", "application/x-bzip2")
+		c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fmt.Sprintf("%d.dem.bz2", matchID)))
+		return c.Send(rawBytes)
 	}
 	rec, err := s.store.GetMatchByID(matchID)
 	if err != nil {
@@ -689,7 +739,8 @@ func LoadPersistedAPIKeys(path string) (steam, stratz, openDota string, ok bool)
 	return strings.TrimSpace(cfg.SteamAPIKey), strings.TrimSpace(cfg.StratzAPIKey), strings.TrimSpace(cfg.OpenDotaAPIKey), true
 }
 
-func savePersistedAPIKeys(path, steam, stratz, openDota string) error {
+// SavePersistedAPIKeys writes Steam, STRATZ, and OpenDota API keys to disk.
+func SavePersistedAPIKeys(path, steam, stratz, openDota string) error {
 	if path == "" {
 		return nil
 	}
@@ -707,15 +758,37 @@ func savePersistedAPIKeys(path, steam, stratz, openDota string) error {
 	return os.WriteFile(path, data, 0600)
 }
 
+func maskSecretKey(k string) string {
+	clean := strings.TrimSpace(k)
+	if clean == "" {
+		return ""
+	}
+	if len(clean) <= 4 {
+		return "••••••••"
+	}
+	return "••••••••" + clean[len(clean)-4:]
+}
+
+func resolveUpdatedKey(incoming, prev string, clear bool) string {
+	if clear || strings.EqualFold(strings.TrimSpace(incoming), "clear") {
+		return ""
+	}
+	trimmed := strings.TrimSpace(incoming)
+	if trimmed != "" && !strings.HasPrefix(trimmed, "••••") {
+		return trimmed
+	}
+	return prev
+}
+
 func (s *Server) apiKeysPayload() fiber.Map {
 	steam, stratz, openDota := s.harvester.GetAPIKeys()
 	return fiber.Map{
-		"steam_api_key":       steam,
-		"stratz_api_key":      stratz,
-		"opendota_api_key":    openDota,
 		"steam_configured":    steam != "",
 		"stratz_configured":   stratz != "",
 		"opendota_configured": openDota != "",
+		"steam_masked":        maskSecretKey(steam),
+		"stratz_masked":       maskSecretKey(stratz),
+		"opendota_masked":     maskSecretKey(openDota),
 	}
 }
 
@@ -724,16 +797,23 @@ func (s *Server) handleGetAPIKeys(c *fiber.Ctx) error {
 }
 
 func (s *Server) handleUpdateAPIKeys(c *fiber.Ctx) error {
-	var body persistedAPIKeys
+	var body struct {
+		SteamAPIKey    string `json:"steam_api_key"`
+		StratzAPIKey   string `json:"stratz_api_key"`
+		OpenDotaAPIKey string `json:"opendota_api_key"`
+		ClearSteam     bool   `json:"clear_steam"`
+		ClearStratz    bool   `json:"clear_stratz"`
+		ClearOpenDota  bool   `json:"clear_opendota"`
+	}
 	if err := json.Unmarshal(c.Body(), &body); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
-	prevSteam, _, _ := s.harvester.GetAPIKeys()
-	steam := strings.TrimSpace(body.SteamAPIKey)
-	stratz := strings.TrimSpace(body.StratzAPIKey)
-	openDota := strings.TrimSpace(body.OpenDotaAPIKey)
+	prevSteam, prevStratz, prevOpenDota := s.harvester.GetAPIKeys()
+	steam := resolveUpdatedKey(body.SteamAPIKey, prevSteam, body.ClearSteam)
+	stratz := resolveUpdatedKey(body.StratzAPIKey, prevStratz, body.ClearStratz)
+	openDota := resolveUpdatedKey(body.OpenDotaAPIKey, prevOpenDota, body.ClearOpenDota)
 	s.harvester.SetAPIKeys(steam, stratz, openDota)
-	if err := savePersistedAPIKeys(s.apiKeysPath, steam, stratz, openDota); err != nil {
+	if err := SavePersistedAPIKeys(s.apiKeysPath, steam, stratz, openDota); err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	if steam != prevSteam && s.filterEngine.GetConfig().Enabled {
@@ -767,7 +847,8 @@ func LoadPersistedFilterConfig(path string) (models.FilterConfig, bool) {
 	return cfg, true
 }
 
-func savePersistedFilterConfig(path string, cfg models.FilterConfig) error {
+// SavePersistedFilterConfig saves match filter rules to disk (always keeping Harvester off on disk).
+func SavePersistedFilterConfig(path string, cfg models.FilterConfig) error {
 	if path == "" {
 		return nil
 	}
@@ -798,7 +879,8 @@ func LoadPersistedSinkConfig(path string) (webhookURL string, webhookEnabled boo
 	return strings.TrimSpace(cfg.WebhookURL), cfg.WebhookEnabled, cfg.FileStorageEnabled, true
 }
 
-func savePersistedSinkConfig(path, webhookURL string, webhookEnabled, fileStorageEnabled bool) error {
+// SavePersistedSinkConfig writes webhook and file storage settings to disk.
+func SavePersistedSinkConfig(path, webhookURL string, webhookEnabled, fileStorageEnabled bool) error {
 	if path == "" {
 		return nil
 	}
@@ -825,7 +907,7 @@ func (s *Server) handleUpdateSink(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 	cfg := s.store.UpdateSinkConfig(strings.TrimSpace(body.WebhookURL), body.WebhookEnabled)
-	if err := savePersistedSinkConfig(s.sinkConfigPath(), cfg.WebhookURL, cfg.WebhookEnabled, cfg.FileStorageEnabled); err != nil {
+	if err := SavePersistedSinkConfig(s.sinkConfigPath(), cfg.WebhookURL, cfg.WebhookEnabled, cfg.FileStorageEnabled); err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(cfg)
@@ -839,7 +921,7 @@ func (s *Server) handleUpdateFileStorage(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 	cfg := s.store.SetFileStorageEnabled(body.Enabled)
-	if err := savePersistedSinkConfig(s.sinkConfigPath(), cfg.WebhookURL, cfg.WebhookEnabled, cfg.FileStorageEnabled); err != nil {
+	if err := SavePersistedSinkConfig(s.sinkConfigPath(), cfg.WebhookURL, cfg.WebhookEnabled, cfg.FileStorageEnabled); err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(cfg)
@@ -862,18 +944,14 @@ func (s *Server) handleUpdateFilters(c *fiber.Ctx) error {
 	}
 	updated := s.filterEngine.UpdateConfig(cfg)
 	_ = s.leaseMgr.SaveFilterConfig(ctx, updated)
-	if err := savePersistedFilterConfig(s.filterConfigPath(), updated); err != nil {
+	if err := SavePersistedFilterConfig(s.filterConfigPath(), updated); err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(updated)
 }
 
-func (s *Server) handleInjectJob(c *fiber.Ctx) error {
-	ctx := c.UserContext()
-	var req models.InjectJobRequest
-	if err := json.Unmarshal(c.Body(), &req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-	}
+// InjectJob enqueues a sample or custom MatchJob into the Coordinator queue.
+func (s *Server) InjectJob(ctx context.Context, req models.InjectJobRequest, baseURL string) (models.MatchJob, error) {
 	if req.MatchID == 0 {
 		req.MatchID = uint64(7890000000 + rand.Int63n(9000000))
 	}
@@ -890,12 +968,12 @@ func (s *Server) handleInjectJob(c *fiber.Ctx) error {
 	url := strings.TrimSpace(req.CustomURL)
 	if url == "" {
 		if req.ReplaySalt == 0 {
-			url = c.BaseURL() + fmt.Sprintf("/api/v1/demo/sample.dem.bz2?match_id=%d", req.MatchID)
+			url = baseURL + fmt.Sprintf("/api/v1/demo/sample.dem.bz2?match_id=%d", req.MatchID)
 		} else {
 			url = models.BuildReplayURL(req.Cluster, req.MatchID, req.ReplaySalt)
 		}
 	} else if strings.HasPrefix(url, "/") {
-		url = c.BaseURL() + url
+		url = baseURL + url
 	}
 
 	job := models.MatchJob{
@@ -919,9 +997,20 @@ func (s *Server) handleInjectJob(c *fiber.Ctx) error {
 		err = s.leaseMgr.EnqueueDelayed(ctx, job)
 	}
 	if err != nil {
+		return models.MatchJob{}, err
+	}
+	return job, nil
+}
+
+func (s *Server) handleInjectJob(c *fiber.Ctx) error {
+	var req models.InjectJobRequest
+	if err := json.Unmarshal(c.Body(), &req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	job, err := s.InjectJob(c.UserContext(), req, c.BaseURL())
+	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-
 	return c.JSON(fiber.Map{"status": "enqueued", "job": job})
 }
 
@@ -961,17 +1050,6 @@ func (s *Server) handlePollNow(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"status": "triggered"})
 }
 
-func (s *Server) checkOptionalAdminSecret(c *fiber.Ctx) error {
-	secret := strings.TrimSpace(os.Getenv("ADMIN_SECRET"))
-	if secret == "" {
-		return nil
-	}
-	if extractBearerToken(c) != secret && strings.TrimSpace(c.Get("X-Admin-Secret")) != secret {
-		return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": "admin authorization required"})
-	}
-	return nil
-}
-
 func (s *Server) handleGetActiveParser(c *fiber.Ctx) error {
 	if s.parsers == nil {
 		return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "parser manager unavailable"})
@@ -1009,9 +1087,6 @@ func (s *Server) handleAdminListParsers(c *fiber.Ctx) error {
 }
 
 func (s *Server) handleAdminUploadParser(c *fiber.Ctx) error {
-	if err := s.checkOptionalAdminSecret(c); err != nil {
-		return err
-	}
 	if s.parsers == nil {
 		return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "parser manager unavailable"})
 	}
@@ -1075,9 +1150,6 @@ func (s *Server) handleAdminUploadParser(c *fiber.Ctx) error {
 }
 
 func (s *Server) handleAdminActivateParser(c *fiber.Ctx) error {
-	if err := s.checkOptionalAdminSecret(c); err != nil {
-		return err
-	}
 	if s.parsers == nil {
 		return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "parser manager unavailable"})
 	}
@@ -1089,6 +1161,13 @@ func (s *Server) handleAdminActivateParser(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid JSON body"})
 	}
 	mode := strings.ToLower(strings.TrimSpace(body.Mode))
+	if mode == "raw" || mode == "none" || strings.EqualFold(body.ID, "raw") || strings.EqualFold(body.ID, "none") {
+		desc, err := s.parsers.ActivateRaw()
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(desc)
+	}
 	if mode == "default" || body.ID == "default" {
 		desc, err := s.parsers.ActivateDefault()
 		if err != nil {
@@ -1104,9 +1183,6 @@ func (s *Server) handleAdminActivateParser(c *fiber.Ctx) error {
 }
 
 func (s *Server) handleAdminDeleteParser(c *fiber.Ctx) error {
-	if err := s.checkOptionalAdminSecret(c); err != nil {
-		return err
-	}
 	if s.parsers == nil {
 		return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "parser manager unavailable"})
 	}

@@ -59,12 +59,6 @@ func (a *App) TogglePause() orchestrator.StatusSnapshot {
 	return a.orch.GetStatusSnapshot()
 }
 
-// RunBenchmark triggers an immediate in-RAM benchmark/demo replay parse (or requests a demo batch from the server).
-func (a *App) RunBenchmark() orchestrator.StatusSnapshot {
-	a.orch.TriggerBenchmarkOrDemo()
-	return a.orch.GetStatusSnapshot()
-}
-
 // TestServerConnection updates the server URL (if non-empty), immediately probes the server, and returns the status snapshot.
 func (a *App) TestServerConnection(serverURL string) orchestrator.StatusSnapshot {
 	clean := strings.TrimSpace(serverURL)

@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -731,6 +732,205 @@ func TestAdminConfigPersistence(t *testing.T) {
 	}
 	if whURL != "https://example.com/hook" || !whEnabled || fsEnabled {
 		t.Fatalf("unexpected persisted sink config: url=%q wh=%v fs=%v", whURL, whEnabled, fsEnabled)
+	}
+}
+
+func TestRawReplayPassthroughMode(t *testing.T) {
+	srv, leaseMgr, storageDir := setupTestServer(t, 5*time.Minute, "")
+
+	// Activate "raw" mode via Admin API.
+	reqAct := httptest.NewRequest(http.MethodPut, "/api/v1/admin/parsers/active", bytes.NewBufferString(`{"mode":"raw","id":"raw"}`))
+	reqAct.Header.Set("Content-Type", "application/json")
+	respAct, err := srv.App().Test(reqAct, -1)
+	if err != nil || respAct.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/v1/admin/parsers/active failed: status=%d err=%v", respAct.StatusCode, err)
+	}
+	var activeDesc models.ParserDescriptor
+	if err := json.NewDecoder(respAct.Body).Decode(&activeDesc); err != nil {
+		t.Fatalf("decode active parser: %v", err)
+	}
+	if activeDesc.Mode != "raw" || activeDesc.ReportedName != "raw" || activeDesc.SHA256 != parsers.RawParserSHA256 {
+		t.Fatalf("unexpected raw active descriptor: %+v", activeDesc)
+	}
+
+	// Enqueue and lease a match; verify ActiveParser on lease is "raw".
+	if err := leaseMgr.EnqueueReady(context.Background(), models.MatchJob{
+		MatchID: 881001, Cluster: 133, ReplaySalt: 11111, Region: models.RegionEU,
+		URL: "http://example.com/881001.dem.bz2", ReadyAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("EnqueueReady failed: %v", err)
+	}
+	reqLease := httptest.NewRequest(http.MethodPost, "/api/v1/batch/lease", bytes.NewBufferString(`{"worker_id":"w-raw","preferred_region":"EU","max_tasks":1}`))
+	reqLease.Header.Set("Content-Type", "application/json")
+	respLease, err := srv.App().Test(reqLease, -1)
+	if err != nil || respLease.StatusCode != http.StatusOK {
+		t.Fatalf("lease failed: status=%d err=%v", respLease.StatusCode, err)
+	}
+	var leaseResp models.LeaseResponse
+	_ = json.NewDecoder(respLease.Body).Decode(&leaseResp)
+	if leaseResp.ActiveParser == nil || leaseResp.ActiveParser.Mode != "raw" {
+		t.Fatalf("expected lease ActiveParser mode=raw, got %+v", leaseResp.ActiveParser)
+	}
+
+	// Submit raw .dem.bz2 bytes from worker.
+	rawSample := []byte("BZh91AY&SYraw-test-replay-bytes")
+	rawPayload, _ := json.Marshal(map[string]any{
+		"mode":                  "raw",
+		"match_id":              881001,
+		"format":                "dem.bz2",
+		"compressed_size_bytes": len(rawSample),
+		"data_base64":           base64.StdEncoding.EncodeToString(rawSample),
+	})
+	subBody, _ := json.Marshal(models.SubmitBatchRequest{
+		BatchID:       leaseResp.BatchID,
+		WorkerID:      "w-raw",
+		ClientVersion: "1.2.0",
+		Results: []models.TaskResult{{
+			MatchID:       881001,
+			Status:        models.StatusSuccess,
+			ParserName:    "raw",
+			ParserVersion: "1.0.0",
+			ParserSHA256:  parsers.RawParserSHA256,
+			Payload:       rawPayload,
+		}},
+	})
+	reqSub := httptest.NewRequest(http.MethodPost, "/api/v1/batch/submit", bytes.NewReader(subBody))
+	reqSub.Header.Set("Content-Type", "application/json")
+	respSub, err := srv.App().Test(reqSub, -1)
+	if err != nil || respSub.StatusCode != http.StatusOK {
+		t.Fatalf("submit failed: status=%d err=%v", respSub.StatusCode, err)
+	}
+	var subAck models.SubmitBatchResponse
+	_ = json.NewDecoder(respSub.Body).Decode(&subAck)
+	if subAck.MatchesAccepted != 1 {
+		t.Fatalf("expected MatchesAccepted=1, got %+v", subAck)
+	}
+
+	// Verify .dem.bz2 file on disk AND downloadable endpoint.
+	diskRaw, err := os.ReadFile(filepath.Join(storageDir, "881001.dem.bz2"))
+	if err != nil || !bytes.Equal(diskRaw, rawSample) {
+		t.Fatalf("expected 881001.dem.bz2 on disk to match rawSample, got len=%d err=%v", len(diskRaw), err)
+	}
+	respDL, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/matches/881001.dem.bz2", nil), -1)
+	if err != nil || respDL.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/matches/881001.dem.bz2 failed: status=%d err=%v", respDL.StatusCode, err)
+	}
+	dlBytes, _ := io.ReadAll(respDL.Body)
+	if !bytes.Equal(dlBytes, rawSample) {
+		t.Fatalf("downloaded .dem.bz2 bytes mismatch: got %q want %q", dlBytes, rawSample)
+	}
+
+	// Verify /api/v1/admin/overview recent_results omits bloated data_base64.
+	respOv, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/admin/overview", nil), -1)
+	if err != nil || respOv.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/admin/overview failed: status=%d err=%v", respOv.StatusCode, err)
+	}
+	ovBytes, _ := io.ReadAll(respOv.Body)
+	if bytes.Contains(ovBytes, []byte("data_base64")) {
+		t.Fatalf("expected admin overview recent_results to omit raw data_base64")
+	}
+}
+
+func TestAdminPasswordAuthAndMaskedKeys(t *testing.T) {
+	srv, _, storageDir := setupTestServer(t, 5*time.Minute, "")
+	dataDir := filepath.Dir(storageDir)
+	authPath := filepath.Join(dataDir, "admin_auth.json")
+	srv.EnableAdminPasswordAuth(authPath)
+
+	// Configure a Steam API key so we can test key masking too.
+	srv.harvester.SetAPIKeys("STEAM-SECRET-9876", "STRATZ-TOKEN-4321", "")
+
+	// 1. Before password is set, admin endpoints must return 401 and login must return 403.
+	respUnauth, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/admin/overview", nil), -1)
+	if err != nil || respUnauth.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on /api/v1/admin/overview when unauthenticated, got status=%d err=%v", respUnauth.StatusCode, err)
+	}
+	reqNoPass := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/login", bytes.NewBufferString(`{"password":"anything"}`))
+	reqNoPass.Header.Set("Content-Type", "application/json")
+	respNoPass, err := srv.App().Test(reqNoPass, -1)
+	if err != nil || respNoPass.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 when trying to log in before CLI password is set, got status=%d err=%v", respNoPass.StatusCode, err)
+	}
+
+	// 2. Set admin password (CLI-only path) -> saved hashed as bcrypt (never plaintext).
+	if err := srv.SetAdminPassword("strongpass123", true); err != nil {
+		t.Fatalf("SetAdminPassword failed: %v", err)
+	}
+	authDisk, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatalf("expected admin_auth.json on disk: %v", err)
+	}
+	if bytes.Contains(authDisk, []byte("strongpass123")) || !bytes.Contains(authDisk, []byte("$2")) {
+		t.Fatalf("expected bcrypt hash on disk without plaintext password, got %s", authDisk)
+	}
+
+	// 3. Wrong password returns 401 and triggers 429 lockout on the 5th failure.
+	for i := 1; i <= 5; i++ {
+		reqBad := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/login", bytes.NewBufferString(`{"password":"wrong"}`))
+		reqBad.Header.Set("Content-Type", "application/json")
+		respBad, err := srv.App().Test(reqBad, -1)
+		if err != nil {
+			t.Fatalf("bad login request #%d error: %v", i, err)
+		}
+		wantCode := http.StatusUnauthorized
+		if i == 5 {
+			wantCode = http.StatusTooManyRequests
+		}
+		if respBad.StatusCode != wantCode {
+			t.Fatalf("attempt %d: expected %d, got %d", i, wantCode, respBad.StatusCode)
+		}
+	}
+
+	// Simulate lockout expiry on 127.0.0.1 for the test so we can verify valid login next.
+	srv.adminAuthMu.Lock()
+	srv.adminLoginAttempts = make(map[string]*loginAttemptWindow)
+	srv.adminAuthMu.Unlock()
+
+	// 4. Correct password returns 200 with HttpOnly session cookie.
+	reqGood := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/login", bytes.NewBufferString(`{"password":"strongpass123"}`))
+	reqGood.Header.Set("Content-Type", "application/json")
+	respGood, err := srv.App().Test(reqGood, -1)
+	if err != nil || respGood.StatusCode != http.StatusOK {
+		t.Fatalf("valid login failed: status=%d err=%v", respGood.StatusCode, err)
+	}
+	var sessionCookie *http.Cookie
+	for _, ck := range respGood.Cookies() {
+		if ck.Name == adminAuthCookieName {
+			sessionCookie = ck
+		}
+	}
+	if sessionCookie == nil || !sessionCookie.HttpOnly {
+		t.Fatalf("expected HttpOnly %s cookie on login, got %+v", adminAuthCookieName, respGood.Cookies())
+	}
+
+	// 5. Authenticated /api/v1/admin/api-keys and /overview must return masked keys and NO plaintext secrets.
+	reqKeys := httptest.NewRequest(http.MethodGet, "/api/v1/admin/api-keys", nil)
+	reqKeys.AddCookie(sessionCookie)
+	respKeys, err := srv.App().Test(reqKeys, -1)
+	if err != nil || respKeys.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/admin/api-keys failed: status=%d err=%v", respKeys.StatusCode, err)
+	}
+	keysRaw, _ := io.ReadAll(respKeys.Body)
+	if bytes.Contains(keysRaw, []byte("STEAM-SECRET-9876")) || bytes.Contains(keysRaw, []byte("STRATZ-TOKEN-4321")) {
+		t.Fatalf("plaintext API key leaked in /api/v1/admin/api-keys response: %s", keysRaw)
+	}
+	var keysResp map[string]any
+	_ = json.Unmarshal(keysRaw, &keysResp)
+	if keysResp["steam_masked"] != "••••••••9876" || keysResp["stratz_masked"] != "••••••••4321" {
+		t.Fatalf("expected masked keys in response, got %+v", keysResp)
+	}
+
+	// Updating only OpenDota key while leaving Steam blank preserves Steam key.
+	reqUpd := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys", bytes.NewBufferString(`{"opendota_api_key":"OD-NEW-5555"}`))
+	reqUpd.Header.Set("Content-Type", "application/json")
+	reqUpd.AddCookie(sessionCookie)
+	respUpd, err := srv.App().Test(reqUpd, -1)
+	if err != nil || respUpd.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/v1/admin/api-keys failed: status=%d err=%v", respUpd.StatusCode, err)
+	}
+	gotSteam, gotStratz, gotOD := srv.harvester.GetAPIKeys()
+	if gotSteam != "STEAM-SECRET-9876" || gotStratz != "STRATZ-TOKEN-4321" || gotOD != "OD-NEW-5555" {
+		t.Fatalf("expected existing keys preserved on partial update, got steam=%q stratz=%q od=%q", gotSteam, gotStratz, gotOD)
 	}
 }
 

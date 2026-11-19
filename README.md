@@ -31,12 +31,18 @@ Run the server from the same directory every time. It keeps its state in `./data
 
 ### Configure it in the admin page
 
-- **API Keys.** The Steam Web API key controls match discovery. STRATZ (priority 1) and OpenDota (priority 2) keys are used for replay salts. Keys apply immediately and are saved to `data/api_keys.json`. There is no `.env` file support.
-- **Match Ingestion Filters.** Choose lobby types, game modes, regions, whether to require ten human players, and a minimum duration.
-- **Active Replay Parser.** Switch between the built-in parser and parsers you upload. See [Custom parsers](#custom-parsers).
-- **Integrations and Storage.** Set an outbound webhook and turn file saving on or off.
+Before signing in at `/admin` for the first time, set the admin password in the server terminal:
 
-The admin page and the `/api/v1/admin/*` endpoints have no authentication. Run the server on a trusted network, or put it behind a reverse proxy that adds authentication.
+```text
+server> password <your-password>
+```
+
+Passwords are stored as `bcrypt` hashes in `data/admin_auth.json` and cannot be created or changed from the browser. Failed login attempts are rate-limited per IP (five wrong attempts in a minute lock out logins for 60 seconds). The harvester always starts off on launch, even if you saved filters before restarting.
+
+- **API Keys.** The Steam Web API key controls match discovery. STRATZ (priority 1) and OpenDota (priority 2) keys are used for replay salts. Keys apply immediately and are saved to `data/api_keys.json`. After saving, `/admin` shows only masked previews (`••••••••1234`), never the full key. Leave an input blank to keep the stored key, or type `clear` to remove it. There is no `.env` file support.
+- **Match Ingestion Filters.** Choose lobby types, game modes, regions, whether to require ten human players, and duration bounds. Rules are saved to `data/filter_config.json`; the harvester on/off switch is not persisted.
+- **Active Replay Parser.** Switch between `default` (built-in Manta parser), `raw` (omit parsing and have workers upload the raw downloaded `.dem.bz2`), or custom parsers you upload. See [Custom parsers](#custom-parsers).
+- **Integrations and Storage.** Set an outbound webhook and turn local file saving on or off. Saved to `data/sink_config.json`.
 
 ### Getting parsed matches out
 
@@ -46,9 +52,9 @@ There are three ways to read results, and they work whether or not file saving i
 | :--- | :--- |
 | Webhook | The server sends a `POST` with the full match record to the URL you set in `/admin` or in `EXTERNAL_WEBHOOK_URL`. Each request carries an `X-Match-ID` header and is retried up to three times. |
 | Live stream | `GET /api/v1/stream/matches` is a Server-Sent Events feed of every newly parsed match. |
-| REST | `GET /api/v1/matches/<match_id>` returns one match. `GET /api/v1/matches?limit=50` lists recent ones. |
+| REST | `GET /api/v1/matches/<match_id>` returns one match. `GET /api/v1/matches/<match_id>.dem.bz2` (or `?raw=1`) downloads the raw replay when `raw` mode was used. `GET /api/v1/matches?limit=50` lists recent ones. |
 
-With file saving on, each match is also written to `data/matches/<match_id>.json`. With it off, nothing is written to disk. In that case the REST endpoints only see the 200 most recent matches, held in memory and lost on restart. If you want every match in your own database, use the webhook or the stream.
+With file saving on, each match is written to `data/matches/<match_id>.json`, and `raw` submissions also write `data/matches/<match_id>.dem.bz2`. With file saving off, nothing is written to disk. In that case the REST endpoints only see the 200 most recent match records and the 8 most recent raw replays in memory, which are lost on restart. If you want every match in your own database, use the webhook or the stream.
 
 A match record contains `match_id`, `cluster`, `region`, `parser_name`, `parser_version`, `worker_id`, `payload`, and `created_at`.
 
@@ -57,19 +63,23 @@ A match record contains `match_id`, `cluster`, `region`, `parser_name`, `parser_
 | Path | Contents |
 | :--- | :--- |
 | `data/accounts.db` | SQLite database of worker accounts and XP |
-| `data/api_keys.json` | Steam, STRATZ, and OpenDota keys saved from `/admin` |
+| `data/admin_auth.json` | `bcrypt` hash of the `/admin` console password |
 | `data/admin_ui_state.json` | Whether the first-run tutorial has been completed |
-| `data/matches/` | Parsed match files, when file saving is on |
+| `data/api_keys.json` | Steam, STRATZ, and OpenDota keys saved from `/admin` or the CLI |
+| `data/filter_config.json` | Saved match filters (harvester enabled state always resets to off) |
+| `data/sink_config.json` | Webhook URL, webhook toggle, and file saving toggle |
+| `data/matches/` | Parsed `.json` records (and `.dem.bz2` files in `raw` mode) when file saving is on |
 | `data/parsers/` | Uploaded parsers and their build artifacts |
 | `data/runtimes/` | Cached runtimes, such as the Python WASI module |
 
 ### Environment variables
 
-All are optional. Keys saved in `/admin` take precedence over the key variables.
+All are optional. Settings saved to `data/` take precedence over environment variables on startup.
 
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
 | `PORT` | `8080` | HTTP port for the worker API and `/admin` |
+| `ADMIN_SECRET` | empty | Fallback bearer token or `X-Admin-Secret` header for `/api/v1/admin/*` |
 | `STORAGE_DIR` | `data/matches` | Where match files are written |
 | `ACCOUNTS_DB_PATH` | `data/accounts.db` | SQLite accounts database |
 | `PARSERS_DIR` | `data/parsers` | Uploaded parser storage |
@@ -95,11 +105,11 @@ The worker starts with no server configured. Open the Configuration tab, enter y
 
 - Preferred region, either automatic (lowest latency) or fixed.
 - STRATZ and OpenDota API keys for replay salt resolution.
-- A daily bandwidth cap.
+- Daily bandwidth cap (MB) and download speed limit (KB/s); `0` or `unlimited` disables either cap.
 - System idle policy and the PC inactivity time before the worker speeds up.
 - Gamer Guard, described below.
 
-The worker stores its settings, session token, and counters in `%AppData%\Dota2ReplayCourier\config.json` on Windows, and in the equivalent user config directory on other systems.
+If the worker loses its connection to the coordinator, it cancels any in-flight batch immediately until the server is reachable again. The worker stores its settings, session token, and counters in `%AppData%\Dota2ReplayCourier\config.json` on Windows, and in the equivalent user config directory on other systems.
 
 ### Gamer Guard
 
@@ -143,6 +153,38 @@ If you build the worker yourself, you can skip uploads and attach a Go parser di
 ```go
 orch.SetCustomBlackBoxParser(myParser)
 ```
+
+## Headless CLI mode
+
+Both binaries support terminal operation without the browser or desktop window. Both interactive prompts support `↑`/`↓` command history (`history`, `!!`, `!<n>`), `Tab` completion, unambiguous prefix matching, typo suggestions, bare inspect-by-default commands, and a 1-line `watch` ticker (`w`). Live logs redraw the prompt automatically and can be controlled with `logs <on|off|errors|N>` (`l`).
+
+### Central server CLI
+
+Passing `--headless` (or any configuration flag) disables `/admin` and `/api/v1/admin/*`. Startup flags apply in memory for that run only. Interactive commands typed on `stdin` save changes to `data/` (except `harvester on|off`, which is always runtime-only). Type `save` to persist session flags to disk.
+
+```powershell
+.\central-server.exe --headless --harvester --regions=EU,NA --min-duration=1200 --file-storage=true
+```
+
+Startup flags: `--headless`, `--port`, `--harvester`, `--steam-key`, `--stratz-key`, `--opendota-key`, `--regions`, `--lobby-types`, `--game-modes`, `--min-duration`, `--max-duration`, `--require-10-humans`, `--file-storage`, `--webhook-url`, `--webhook`, `--parser`, `--admin-password`.
+
+Interactive `stdin` commands (aliases `s`, `h`, `i`, `w`, `l`, `q`): `help`, `status`, `harvester [on|off|toggle]`, `keys [show|<steam|stratz|opendota> <key|clear>]`, `filter [show|regions|lobbies|modes|min-duration|max-duration|humans]`, `file-storage [on|off|toggle]`, `webhook [url|on|off|clear]`, `parser [list|activate <default|raw|id>|upload|delete]`, `inject [count|match_id] [cluster]`, `password [new_password]`, `watch`, `logs [on|off|errors|N]`, `history`, `save`, `quit`.
+
+### Worker CLI
+
+Build the standalone pure-Go CLI binary (no Wails or WebView needed; cross-compiles to Linux and macOS cleanly) or pass `--headless` / flags to `dota-analytics-worker`:
+
+```powershell
+cd desktop-worker
+go build -o dota-worker-cli.exe ./cmd/worker
+.\dota-worker-cli.exe --server=http://localhost:8080 --region=EU
+```
+
+Startup flags apply in memory for that session (`config.json` keeps its saved settings while still saving match counters/XP). Headless mode disables the local UI HTTP server on port `34115`. When started interactively with no server configured, a first-run prompt lets you enter the Coordinator URL and optionally sign in or register (pass `--no-wizard` to skip).
+
+Startup flags: `--headless`, `--server`, `--region`, `--stratz-key`, `--opendota-key`, `--pause-on-gaming`, `--gaming-behavior`, `--idle-policy`, `--idle-threshold`, `--bandwidth-limit`, `--speed-limit`, `--paused`, `--no-wizard`.
+
+Interactive `stdin` commands (aliases `s`, `p`, `r`, `w`, `l`, `q`): `help`, `status`, `pause`, `resume`, `server [url|clear]`, `region [REGION]`, `regions`, `keys [show|stratz|opendota]`, `guard [on|off] [HOLD_IN_RAM|ECO_SLOWDOWN]`, `idle [POLICY] [sec]`, `limits [daily_mb|unlimited] [speed_kbps|unlimited]` (`0=unlimited`), `login <nick> [pass]`, `register <nick> [RADIANT|DIRE]`, `logout`, `watch`, `logs [on|off|errors|N]`, `setup`, `history`, `save`, `quit`. Omitting the password on `login`/`register` prompts for it with masked input. Closing `stdin` exits only the command reader so background daemons stay running until interrupted.
 
 ## Tests
 

@@ -757,4 +757,79 @@ func TestWorkerStopsBatchOnConnectionLoss(t *testing.T) {
 	}
 }
 
+func TestWorkerRawReplayPassthrough(t *testing.T) {
+	rawReplayBytes := []byte("BZh91AY&SYmock-raw-replay-binary-bytes-no-parse")
+
+	rawDesc := &client.ParserDescriptor{
+		Mode:         "raw",
+		ID:           "raw",
+		Name:         "raw",
+		ReportedName: "raw",
+		Kind:         "raw",
+		Revision:     3,
+		SHA256:       RawParserSHA256,
+	}
+
+	var captured client.TaskResult
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/stats":
+			_ = json.NewEncoder(w).Encode(client.PublicStats{ActiveParser: rawDesc})
+		case "/api/v1/demo.dem.bz2":
+			w.Header().Set("Content-Type", "application/x-bzip2")
+			_, _ = w.Write(rawReplayBytes)
+		case "/api/v1/batch/submit":
+			req, decErr := decodeMockSubmitBody(r)
+			if decErr != nil {
+				http.Error(w, decErr.Error(), http.StatusBadRequest)
+				return
+			}
+			captured = req.Results[0]
+			_ = json.NewEncoder(w).Encode(client.SubmitBatchResponse{
+				Status:          "ACK",
+				MatchesAccepted: 1,
+				XPAwarded:       XPPerMatch,
+				ActiveParser:    rawDesc,
+			})
+		}
+	}))
+	defer srv.Close()
+
+	cfgMgr := config.NewManager(filepath.Join(t.TempDir(), "config.json"))
+	cfgMgr.Update(func(c *config.WorkerConfig) {
+		c.ServerURL = srv.URL
+		c.PauseOnGaming = false
+	})
+
+	orch := NewOrchestrator(cfgMgr, sentinel.NewSentinel(cfgMgr), client.NewAPIClient(), downloader.NewDownloader())
+	orch.refreshServerStats(context.Background())
+
+	orch.processBatch(context.Background(), &client.LeaseResponse{
+		BatchID: "batch-raw-01",
+		Region:  "EU",
+		Tasks: []client.LeasedTask{
+			{MatchID: 940001, Cluster: 133, Region: "EU", ReplaySalt: 12345, URL: srv.URL + "/api/v1/demo.dem.bz2"},
+		},
+	})
+
+	if captured.Status != "SUCCESS" || captured.ParserName != "raw" || captured.ParserSHA256 != RawParserSHA256 {
+		t.Fatalf("expected raw SUCCESS submission, got %+v", captured)
+	}
+	var payload struct {
+		Mode       string `json:"mode"`
+		MatchID    uint64 `json:"match_id"`
+		DataBase64 string `json:"data_base64"`
+	}
+	if err := json.Unmarshal(captured.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal raw payload failed: %v", err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload.DataBase64)
+	if err != nil {
+		t.Fatalf("base64 decode failed: %v", err)
+	}
+	if payload.Mode != "raw" || payload.MatchID != 940001 || string(decoded) != string(rawReplayBytes) {
+		t.Fatalf("raw replay bytes mismatch: mode=%q id=%d got=%q want=%q", payload.Mode, payload.MatchID, decoded, rawReplayBytes)
+	}
+}
+
 
