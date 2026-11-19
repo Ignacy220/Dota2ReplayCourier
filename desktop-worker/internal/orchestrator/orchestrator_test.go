@@ -659,3 +659,102 @@ func TestServerDismissalZeroXPAndStaleBatchAbort(t *testing.T) {
 	}
 }
 
+func TestWorkerStopsBatchOnConnectionLoss(t *testing.T) {
+	bz2Bytes, err := base64.StdEncoding.DecodeString(validTestBz2Base64)
+	if err != nil {
+		t.Fatalf("failed to decode bz2 fixture: %v", err)
+	}
+
+	var downloadCount atomic.Int32
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/stats":
+			_ = json.NewEncoder(w).Encode(client.PublicStats{})
+		case "/api/v1/demo.dem.bz2":
+			downloadCount.Add(1)
+			w.Header().Set("Content-Type", "application/x-bzip2")
+			_, _ = w.Write(bz2Bytes)
+		case "/api/v1/batch/submit":
+			// Simulate connection drop when submitting task 1.
+			srv.CloseClientConnections()
+		}
+	}))
+	defer srv.Close()
+
+	cfgMgr := config.NewManager(filepath.Join(t.TempDir(), "config.json"))
+	cfgMgr.Update(func(c *config.WorkerConfig) {
+		c.ServerURL = srv.URL
+		c.PauseOnGaming = false
+	})
+
+	orch := NewOrchestrator(cfgMgr, sentinel.NewSentinel(cfgMgr), client.NewAPIClient(), downloader.NewDownloader())
+	orch.SetCustomBlackBoxParser(&customBlackBoxStub{})
+	orch.refreshServerStats(context.Background())
+
+	if snap := orch.GetStatusSnapshot(); !snap.Connected {
+		t.Fatalf("expected initial Connected=true")
+	}
+
+	// Batch has 2 tasks. Task 1's SubmitResults fails due to dropped connection; Task 2 must not run.
+	orch.processBatch(context.Background(), &client.LeaseResponse{
+		BatchID: "batch-disconnect-01",
+		Region:  "EU",
+		Tasks: []client.LeasedTask{
+			{MatchID: 930001, Cluster: 133, Region: "EU", ReplaySalt: 12345, URL: srv.URL + "/api/v1/demo.dem.bz2"},
+			{MatchID: 930002, Cluster: 133, Region: "EU", ReplaySalt: 12345, URL: srv.URL + "/api/v1/demo.dem.bz2"},
+		},
+	})
+
+	if got := downloadCount.Load(); got != 1 {
+		t.Fatalf("expected batch to stop after connection loss on task 1 (1 download), got %d downloads", got)
+	}
+	snap := orch.GetStatusSnapshot()
+	if snap.Connected {
+		t.Fatalf("expected Connected=false after connection loss")
+	}
+	if snap.State != StateDisconnected {
+		t.Fatalf("expected State=%s after connection loss, got %s", StateDisconnected, snap.State)
+	}
+
+	// Also verify refreshServerStats cancels an in-flight gated batch immediately when server becomes unreachable.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/stats":
+			_ = json.NewEncoder(w).Encode(client.PublicStats{})
+		case "/api/v1/demo.dem.bz2":
+			downloadCount.Add(1)
+			w.Header().Set("Content-Type", "application/x-bzip2")
+			_, _ = w.Write(bz2Bytes)
+		}
+	}))
+	cfgMgr.Update(func(c *config.WorkerConfig) {
+		c.ServerURL = srv2.URL
+	})
+	orch.refreshServerStats(context.Background())
+	orch.SetUserPaused(true)
+
+	done := make(chan struct{})
+	go func() {
+		orch.processBatch(context.Background(), &client.LeaseResponse{
+			BatchID: "batch-disconnect-02",
+			Region:  "EU",
+			Tasks: []client.LeasedTask{
+				{MatchID: 930003, Cluster: 133, Region: "EU", ReplaySalt: 12345, URL: srv2.URL + "/api/v1/demo.dem.bz2"},
+			},
+		})
+		close(done)
+	}()
+
+	time.Sleep(80 * time.Millisecond)
+	srv2.Close()
+	orch.refreshServerStats(context.Background())
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected paused processBatch to stop immediately when connection was lost")
+	}
+}
+
+

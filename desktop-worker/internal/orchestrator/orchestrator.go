@@ -203,6 +203,7 @@ type Orchestrator struct {
 	defaultManta        parser.BlackBoxParser
 	userPaused          bool
 	connected           bool
+	batchCancel         context.CancelFunc
 	probingRegions      bool
 	lastXPSync          time.Time
 	serverLatencyMs     int64
@@ -785,6 +786,20 @@ func (o *Orchestrator) syncUserXP(ctx context.Context) {
 	o.cfgMgr.SyncServerProfile(prof.XP, prof.MatchesParsed, prof.Nickname, prof.Faction)
 }
 
+func (o *Orchestrator) cancelActiveBatchLocked() {
+	if o.batchCancel != nil {
+		o.batchCancel()
+		o.batchCancel = nil
+	}
+}
+
+func (o *Orchestrator) isConnected() bool {
+	o.mu.RLock()
+	connected := o.connected
+	o.mu.RUnlock()
+	return connected && strings.TrimSpace(o.cfgMgr.Get().ServerURL) != ""
+}
+
 func (o *Orchestrator) refreshServerStats(ctx context.Context) {
 	cfg := o.cfgMgr.Get()
 	if strings.TrimSpace(cfg.ServerURL) == "" {
@@ -793,6 +808,7 @@ func (o *Orchestrator) refreshServerStats(ctx context.Context) {
 		o.serverLatencyMs = 0
 		o.serverQueuedJobs = 0
 		o.lastError = "No server configured"
+		o.cancelActiveBatchLocked()
 		o.mu.Unlock()
 		return
 	}
@@ -815,6 +831,7 @@ func (o *Orchestrator) refreshServerStats(ctx context.Context) {
 		o.serverLatencyMs = 0
 		o.serverQueuedJobs = 0
 		o.lastError = err.Error()
+		o.cancelActiveBatchLocked()
 		o.mu.Unlock()
 		return
 	}
@@ -888,6 +905,7 @@ func (o *Orchestrator) workerLoop(ctx context.Context) {
 			o.mu.Lock()
 			o.connected = false
 			o.lastError = "No server configured"
+			o.cancelActiveBatchLocked()
 			o.mu.Unlock()
 			time.Sleep(2 * time.Second)
 			continue
@@ -898,6 +916,7 @@ func (o *Orchestrator) workerLoop(ctx context.Context) {
 			o.mu.Lock()
 			o.connected = false
 			o.lastError = err.Error()
+			o.cancelActiveBatchLocked()
 			o.mu.Unlock()
 			time.Sleep(4 * time.Second)
 			continue
@@ -928,13 +947,17 @@ func (o *Orchestrator) workerLoop(ctx context.Context) {
 
 func (o *Orchestrator) processBatch(ctx context.Context, lease *client.LeaseResponse) {
 	startGen := o.getParserGeneration()
+	batchCtx, cancelBatch := context.WithCancel(ctx)
 
 	o.mu.Lock()
+	o.batchCancel = cancelBatch
 	o.currentBatchID = lease.BatchID
 	o.mu.Unlock()
 
 	defer func() {
+		cancelBatch()
 		o.mu.Lock()
+		o.batchCancel = nil
 		o.currentBatchID = ""
 		o.currentMatchID = 0
 		o.currentCluster = 0
@@ -953,28 +976,60 @@ func (o *Orchestrator) processBatch(ctx context.Context, lease *client.LeaseResp
 	}
 
 	for idx, task := range lease.Tasks {
+		if batchCtx.Err() != nil || !o.isConnected() {
+			o.appendLog("SYSTEM", fmt.Sprintf("Connection lost; stopping batch %s", shortBatch))
+			return
+		}
 		if idx > 0 && o.getParserGeneration() != startGen {
 			o.appendLog("PARSE", fmt.Sprintf("Active parser changed during batch %s; aborting remaining tasks", shortBatch))
 			return
 		}
 		for !o.canStartNewDownload() {
+			if batchCtx.Err() != nil || !o.isConnected() {
+				o.appendLog("SYSTEM", fmt.Sprintf("Connection lost while paused; stopping batch %s", shortBatch))
+				return
+			}
 			if o.getParserGeneration() != startGen {
 				o.appendLog("PARSE", fmt.Sprintf("Active parser changed while paused; aborting remaining tasks in batch %s", shortBatch))
 				return
 			}
 			select {
-			case <-ctx.Done():
+			case <-batchCtx.Done():
 				return
 			case <-time.After(1 * time.Second):
 			}
+		}
+		if batchCtx.Err() != nil || !o.isConnected() {
+			o.appendLog("SYSTEM", fmt.Sprintf("Connection lost; stopping batch %s", shortBatch))
+			return
 		}
 		if o.getParserGeneration() != startGen {
 			o.appendLog("PARSE", fmt.Sprintf("Active parser changed during batch %s; aborting remaining tasks", shortBatch))
 			return
 		}
 
-		o.processSingleTask(ctx, lease.BatchID, task)
+		o.processSingleTask(batchCtx, lease.BatchID, task)
 	}
+}
+
+func (o *Orchestrator) submitTaskResult(ctx context.Context, cfg config.WorkerConfig, batchID string, result client.TaskResult) (*client.SubmitBatchResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	subResp, subErr := o.apiClient.SubmitResults(ctx, cfg.ServerURL, batchID, cfg.WorkerID, cfg.AuthToken, []client.TaskResult{result})
+	if subErr != nil && ctx.Err() == nil {
+		o.mu.Lock()
+		if o.connected {
+			o.appendLogLocked("SYSTEM", fmt.Sprintf("Disconnected from %s (%v)", cfg.ServerURL, subErr))
+		}
+		o.connected = false
+		o.serverLatencyMs = 0
+		o.serverQueuedJobs = 0
+		o.lastError = subErr.Error()
+		o.cancelActiveBatchLocked()
+		o.mu.Unlock()
+	}
+	return subResp, subErr
 }
 
 func (o *Orchestrator) processSingleTask(ctx context.Context, batchID string, task client.LeasedTask) {
@@ -1003,6 +1058,9 @@ func (o *Orchestrator) processSingleTask(ctx context.Context, batchID string, ta
 		cfg.OpenDotaAPIKey,
 		cfg.ServerURL,
 	)
+	if ctx.Err() != nil {
+		return
+	}
 	if justHitLimit {
 		o.appendLog("SYSTEM", "Local daily salt quota reached (3,000/day) — Coordinator is now resolving salts for this worker")
 	}
@@ -1014,12 +1072,10 @@ func (o *Orchestrator) processSingleTask(ctx context.Context, batchID string, ta
 		} else {
 			o.appendLog("SYSTEM", fmt.Sprintf("Match #%d salt resolution skipped (%v)", task.MatchID, err))
 		}
-		_, _ = o.apiClient.SubmitResults(ctx, cfg.ServerURL, batchID, cfg.WorkerID, cfg.AuthToken, []client.TaskResult{
-			{
-				MatchID:      task.MatchID,
-				Status:       status,
-				ErrorMessage: err.Error(),
-			},
+		_, _ = o.submitTaskResult(ctx, cfg, batchID, client.TaskResult{
+			MatchID:      task.MatchID,
+			Status:       status,
+			ErrorMessage: err.Error(),
 		})
 		return
 	}
@@ -1058,18 +1114,19 @@ func (o *Orchestrator) processSingleTask(ctx context.Context, batchID string, ta
 		},
 	)
 
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		status := "CORRUPT_REPLAY"
 		if errors.Is(err, downloader.ErrReplayNotFound404) {
 			status = "TEMP_404"
 		}
 		o.appendLog("SYSTEM", fmt.Sprintf("Match #%d skipped (%s)", task.MatchID, status))
-		_, _ = o.apiClient.SubmitResults(ctx, cfg.ServerURL, batchID, cfg.WorkerID, cfg.AuthToken, []client.TaskResult{
-			{
-				MatchID:      task.MatchID,
-				Status:       status,
-				ErrorMessage: err.Error(),
-			},
+		_, _ = o.submitTaskResult(ctx, cfg, batchID, client.TaskResult{
+			MatchID:      task.MatchID,
+			Status:       status,
+			ErrorMessage: err.Error(),
 		})
 		return
 	}
@@ -1126,15 +1183,16 @@ func (o *Orchestrator) processSingleTask(ctx context.Context, batchID string, ta
 		Metadata:        task.Metadata,
 	})
 
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		log.Printf("[Orchestrator] Parser error on match %d: %v", task.MatchID, err)
 		o.appendLog("PARSE", fmt.Sprintf("Match #%d parse error: %v", task.MatchID, err))
-		_, _ = o.apiClient.SubmitResults(ctx, cfg.ServerURL, batchID, cfg.WorkerID, cfg.AuthToken, []client.TaskResult{
-			{
-				MatchID:      task.MatchID,
-				Status:       "CORRUPT_REPLAY",
-				ErrorMessage: err.Error(),
-			},
+		_, _ = o.submitTaskResult(ctx, cfg, batchID, client.TaskResult{
+			MatchID:      task.MatchID,
+			Status:       "CORRUPT_REPLAY",
+			ErrorMessage: err.Error(),
 		})
 		return
 	}
@@ -1152,21 +1210,16 @@ func (o *Orchestrator) processSingleTask(ctx context.Context, batchID string, ta
 	o.ticksPerSec = actualTPS
 	o.mu.Unlock()
 
-	subResp, subErr := o.apiClient.SubmitResults(ctx, cfg.ServerURL, batchID, cfg.WorkerID, cfg.AuthToken, []client.TaskResult{
-		{
-			MatchID:       task.MatchID,
-			Status:        "SUCCESS",
-			ParserName:    parseOut.ParserName,
-			ParserVersion: parseOut.ParserVersion,
-			ParserSHA256:  parseOut.ParserSHA256,
-			Payload:       parseOut.Payload,
-		},
+	subResp, subErr := o.submitTaskResult(ctx, cfg, batchID, client.TaskResult{
+		MatchID:       task.MatchID,
+		Status:        "SUCCESS",
+		ParserName:    parseOut.ParserName,
+		ParserVersion: parseOut.ParserVersion,
+		ParserSHA256:  parseOut.ParserSHA256,
+		Payload:       parseOut.Payload,
 	})
 	if subErr != nil {
 		o.appendLog("SYSTEM", fmt.Sprintf("Match #%d submit failed: %v", task.MatchID, subErr))
-		o.mu.Lock()
-		o.lastError = subErr.Error()
-		o.mu.Unlock()
 		return
 	}
 

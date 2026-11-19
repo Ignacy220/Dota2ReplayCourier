@@ -227,7 +227,7 @@ func (h *Harvester) GetSteamAPIKey() string {
 	return h.steamAPIKey
 }
 
-const seqNumLookbackOffset uint64 = 2_000_000
+const seqNumLookbackOffset uint64 = 1_000_000
 
 // bootstrapStartingSeqNum resolves the starting match_seq_num on initial startup:
 // 1. Calls Valve's GetMatchHistory requesting 1 match (matches_requested=1).
