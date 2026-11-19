@@ -594,20 +594,23 @@ func (s *Server) handleAdminOverview(c *fiber.Ctx) error {
 		ServerTime:        time.Now().UTC(),
 	}
 
-	return c.JSON(fiber.Map{
-		"stats":             stats,
-		"sink_stats":        s.store.GetSinkStats(),
-		"filter_config":     s.filterEngine.GetConfig(),
-		"filter_stats":      s.filterEngine.GetStats(),
-		"lobby_catalog":     models.LobbyTypeCatalog,
-		"game_mode_catalog": models.GameModeCatalog,
-		"active_leases":     leases,
-		"recent_results":    s.store.GetRecentRecords(25),
+	payload := fiber.Map{
+		"stats":              stats,
+		"sink_stats":         s.store.GetSinkStats(),
+		"filter_config":      s.filterEngine.GetConfig(),
+		"filter_stats":       s.filterEngine.GetStats(),
+		"active_leases":      leases,
+		"recent_results":     s.store.GetRecentRecords(10),
 		"active_parser":      activeParser,
 		"custom_parsers":     customParsers,
 		"api_keys":           s.apiKeysPayload(),
 		"tutorial_completed": s.isTutorialCompleted(),
-	})
+	}
+	if c.Query("slim") != "1" {
+		payload["lobby_catalog"] = models.LobbyTypeCatalog
+		payload["game_mode_catalog"] = models.GameModeCatalog
+	}
+	return c.JSON(payload)
 }
 
 // SetAPIKeysPath configures the file path where runtime-configured API keys are persisted.
@@ -620,6 +623,20 @@ func (s *Server) uiStatePath() string {
 		return filepath.Join(filepath.Dir(s.apiKeysPath), "admin_ui_state.json")
 	}
 	return filepath.Join("data", "admin_ui_state.json")
+}
+
+func (s *Server) filterConfigPath() string {
+	if s.apiKeysPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(s.apiKeysPath), "filter_config.json")
+}
+
+func (s *Server) sinkConfigPath() string {
+	if s.apiKeysPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(s.apiKeysPath), "sink_config.json")
 }
 
 type adminUIState struct {
@@ -727,6 +744,78 @@ func (s *Server) handleUpdateAPIKeys(c *fiber.Ctx) error {
 	return c.JSON(s.apiKeysPayload())
 }
 
+type persistedSinkConfig struct {
+	WebhookURL         string `json:"webhook_url"`
+	WebhookEnabled     bool   `json:"webhook_enabled"`
+	FileStorageEnabled bool   `json:"file_storage_enabled"`
+}
+
+// LoadPersistedFilterConfig loads saved match filter settings from disk (always keeping Harvester off at startup).
+func LoadPersistedFilterConfig(path string) (models.FilterConfig, bool) {
+	if path == "" {
+		return models.DefaultFilterConfig(), false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return models.DefaultFilterConfig(), false
+	}
+	var cfg models.FilterConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return models.DefaultFilterConfig(), false
+	}
+	cfg.Enabled = false
+	return cfg, true
+}
+
+func savePersistedFilterConfig(path string, cfg models.FilterConfig) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	cfg.Enabled = false
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// LoadPersistedSinkConfig loads saved webhook and file storage settings from disk if present.
+func LoadPersistedSinkConfig(path string) (webhookURL string, webhookEnabled bool, fileStorageEnabled bool, ok bool) {
+	if path == "" {
+		return "", false, true, false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, true, false
+	}
+	var cfg persistedSinkConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return "", false, true, false
+	}
+	return strings.TrimSpace(cfg.WebhookURL), cfg.WebhookEnabled, cfg.FileStorageEnabled, true
+}
+
+func savePersistedSinkConfig(path, webhookURL string, webhookEnabled, fileStorageEnabled bool) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(persistedSinkConfig{
+		WebhookURL:         strings.TrimSpace(webhookURL),
+		WebhookEnabled:     webhookEnabled,
+		FileStorageEnabled: fileStorageEnabled,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
 func (s *Server) handleUpdateSink(c *fiber.Ctx) error {
 	var body struct {
 		WebhookURL     string `json:"webhook_url"`
@@ -736,6 +825,9 @@ func (s *Server) handleUpdateSink(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 	cfg := s.store.UpdateSinkConfig(strings.TrimSpace(body.WebhookURL), body.WebhookEnabled)
+	if err := savePersistedSinkConfig(s.sinkConfigPath(), cfg.WebhookURL, cfg.WebhookEnabled, cfg.FileStorageEnabled); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
 	return c.JSON(cfg)
 }
 
@@ -747,6 +839,9 @@ func (s *Server) handleUpdateFileStorage(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 	cfg := s.store.SetFileStorageEnabled(body.Enabled)
+	if err := savePersistedSinkConfig(s.sinkConfigPath(), cfg.WebhookURL, cfg.WebhookEnabled, cfg.FileStorageEnabled); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
 	return c.JSON(cfg)
 }
 
@@ -767,6 +862,9 @@ func (s *Server) handleUpdateFilters(c *fiber.Ctx) error {
 	}
 	updated := s.filterEngine.UpdateConfig(cfg)
 	_ = s.leaseMgr.SaveFilterConfig(ctx, updated)
+	if err := savePersistedFilterConfig(s.filterConfigPath(), updated); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
 	return c.JSON(updated)
 }
 

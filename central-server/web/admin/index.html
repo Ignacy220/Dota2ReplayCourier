@@ -683,11 +683,17 @@
 
   <script>
     const ALL_REGIONS = ["EU", "NA", "SEA", "SA", "CN", "OCE"];
+    const MAX_PREVIEW_CHARS = 12000;
     let catalogInitialized = false;
     let sinkInitialized = false;
     let apiKeysInitialized = false;
     let fileStorageEnabled = true;
     let harvesterEnabled = true;
+    let overviewInFlight = false;
+    let lastResultsKey = "";
+    let lastParsersKey = "";
+    let lastLeasesKey = "";
+    let lastRegionsKey = "";
 
     function showToast(msg) {
       const el = document.getElementById("toast");
@@ -784,9 +790,15 @@
       document.getElementById("vsBarSlash").style.left = visualRad + "%";
     }
 
-    async function fetchOverview() {
+    async function fetchOverview(force = false) {
+      if (overviewInFlight) return;
+      if (!force && document.hidden) return;
+      overviewInFlight = true;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       try {
-        const res = await fetch("/api/v1/admin/overview");
+        const url = catalogInitialized ? "/api/v1/admin/overview?slim=1" : "/api/v1/admin/overview";
+        const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) return;
         const data = await res.json();
 
@@ -849,12 +861,16 @@
         }
 
         const regOrder = ["EU", "NA", "SEA", "SA", "CN", "OCE", "GLOBAL"];
-        document.getElementById("regionCards").innerHTML = regOrder.map(r => `
-          <div class="recessed-box p-3">
-            <div class="text-xs font-medium text-[#96A0AB]">${r}</div>
-            <div class="text-xl font-semibold text-[#ECEAE4] mono-num mt-1">${depths[r] || 0}</div>
-          </div>
-        `).join("");
+        const regionsKey = regOrder.map(r => depths[r] || 0).join(",");
+        if (regionsKey !== lastRegionsKey) {
+          lastRegionsKey = regionsKey;
+          document.getElementById("regionCards").innerHTML = regOrder.map(r => `
+            <div class="recessed-box p-3">
+              <div class="text-xs font-medium text-[#96A0AB]">${r}</div>
+              <div class="text-xl font-semibold text-[#ECEAE4] mono-num mt-1">${depths[r] || 0}</div>
+            </div>
+          `).join("");
+        }
 
         if (data.active_parser) {
           renderParserManager(data.active_parser, data.custom_parsers || []);
@@ -867,35 +883,45 @@
         }
 
         const leases = data.active_leases || [];
-        const tbody = document.getElementById("leasesTableBody");
-        if (leases.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-[#5B6470]">No active leases</td></tr>`;
-        } else {
-          tbody.innerHTML = leases.map(l => {
-            const total = Object.keys(l.jobs || {}).length;
-            const done = Object.keys(l.completed_ids || {}).length;
-            return `
-              <tr>
-                <td class="py-2 pr-4 text-[#E6C87E]">${l.batch_id.slice(0, 12)}</td>
-                <td class="py-2 pr-4">${escapeHtml(l.worker_id || "anon")}</td>
-                <td class="py-2 pr-4">${escapeHtml(l.worker_ip || "-")}</td>
-                <td class="py-2 pr-4">${escapeHtml(l.region)}</td>
-                <td class="py-2 pr-4">${done} / ${total}</td>
-                <td class="py-2 pr-4 text-[#96A0AB]">${new Date(l.expires_at).toLocaleTimeString()}</td>
-              </tr>
-            `;
-          }).join("");
+        const leasesKey = leases.map(l => `${l.batch_id}:${Object.keys(l.completed_ids || {}).length}/${Object.keys(l.jobs || {}).length}:${l.expires_at}`).join("|");
+        if (leasesKey !== lastLeasesKey) {
+          lastLeasesKey = leasesKey;
+          const tbody = document.getElementById("leasesTableBody");
+          if (leases.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-[#5B6470]">No active leases</td></tr>`;
+          } else {
+            tbody.innerHTML = leases.map(l => {
+              const total = Object.keys(l.jobs || {}).length;
+              const done = Object.keys(l.completed_ids || {}).length;
+              return `
+                <tr>
+                  <td class="py-2 pr-4 text-[#E6C87E]">${l.batch_id.slice(0, 12)}</td>
+                  <td class="py-2 pr-4">${escapeHtml(l.worker_id || "anon")}</td>
+                  <td class="py-2 pr-4">${escapeHtml(l.worker_ip || "-")}</td>
+                  <td class="py-2 pr-4">${escapeHtml(l.region)}</td>
+                  <td class="py-2 pr-4">${done} / ${total}</td>
+                  <td class="py-2 pr-4 text-[#96A0AB]">${new Date(l.expires_at).toLocaleTimeString()}</td>
+                </tr>
+              `;
+            }).join("");
+          }
         }
 
         const results = data.recent_results || [];
-        const rc = document.getElementById("resultsContainer");
-        if (results.length > 0) {
-          rc.innerHTML = results.slice(0, 10).map(r => {
+        const topResults = results.slice(0, 10);
+        const resultsKey = topResults.map(r => `${r.match_id}:${r.created_at}`).join("|");
+        if (topResults.length > 0 && resultsKey !== lastResultsKey) {
+          lastResultsKey = resultsKey;
+          const rc = document.getElementById("resultsContainer");
+          rc.innerHTML = topResults.map(r => {
             let prettyPayload = "";
             try {
               prettyPayload = JSON.stringify(typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload, null, 2);
             } catch (e) {
               prettyPayload = String(r.payload);
+            }
+            if (prettyPayload.length > MAX_PREVIEW_CHARS) {
+              prettyPayload = prettyPayload.slice(0, MAX_PREVIEW_CHARS) + `\n... (truncated ${ (prettyPayload.length - MAX_PREVIEW_CHARS).toLocaleString() } chars — click Match #${r.match_id}.json above for full payload)`;
             }
             return `
               <div class="recessed-box p-3.5">
@@ -914,7 +940,12 @@
           }).join("");
         }
       } catch (err) {
-        console.error(err);
+        if (err && err.name !== "AbortError") {
+          console.error(err);
+        }
+      } finally {
+        clearTimeout(timeoutId);
+        overviewInFlight = false;
       }
     }
 
@@ -939,6 +970,10 @@
           badge.className = "px-2.5 py-1 rounded-sm bg-[#1F252D] text-[#E6C87E] border border-[#C8A252] font-medium";
         }
       }
+
+      const parsersKey = `${active ? active.id + ":" + active.revision + ":" + active.mode : "default"}|${customList.map(p => p.id + ":" + p.sha256).join(",")}`;
+      if (parsersKey === lastParsersKey) return;
+      lastParsersKey = parsersKey;
 
       const items = [];
       items.push(`
@@ -1283,8 +1318,11 @@
       } catch (e) {}
     }
 
-    fetchOverview();
-    setInterval(fetchOverview, 3000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) fetchOverview(true);
+    });
+    fetchOverview(true);
+    setInterval(() => fetchOverview(false), 3000);
   </script>
 </body>
 </html>

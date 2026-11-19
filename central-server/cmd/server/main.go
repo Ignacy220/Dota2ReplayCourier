@@ -84,7 +84,12 @@ func main() {
 
 	leaseMgr := queue.NewLeaseManager(rdb, 30*time.Minute)
 
-	initialFilterCfg, _ := leaseMgr.LoadFilterConfig(ctx)
+	dataDir := filepath.Dir(accountsDBPath)
+	initialFilterCfg, ok := api.LoadPersistedFilterConfig(filepath.Join(dataDir, "filter_config.json"))
+	if !ok {
+		initialFilterCfg, _ = leaseMgr.LoadFilterConfig(ctx)
+	}
+	initialFilterCfg.Enabled = false
 	filterEngine := harvester.NewFilterEngine(initialFilterCfg)
 
 	saltResolver := resolver.NewMultiResolver(stratzToken, openDotaKey)
@@ -92,6 +97,10 @@ func main() {
 	harv.Start(ctx)
 
 	store := storage.NewAnalyticsStore(storageDir, webhookURL)
+	if loadedWebhookURL, loadedWebhookEnabled, loadedFileStorageEnabled, ok := api.LoadPersistedSinkConfig(filepath.Join(dataDir, "sink_config.json")); ok {
+		store.UpdateSinkConfig(loadedWebhookURL, loadedWebhookEnabled)
+		store.SetFileStorageEnabled(loadedFileStorageEnabled)
+	}
 	store.Start(ctx)
 
 	accStore, err := accounts.NewStore(accountsDBPath)

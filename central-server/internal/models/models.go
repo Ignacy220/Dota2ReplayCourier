@@ -90,7 +90,7 @@ type FilterConfig struct {
 // DefaultFilterConfig returns the default production match filter configuration.
 func DefaultFilterConfig() FilterConfig {
 	return FilterConfig{
-		Enabled:            true,
+		Enabled:            false,
 		PollIntervalMs:     2000,
 		MaxQueueSize:       10000,
 		CDNDelaySeconds:    180, // 3 minutes delay for Valve CDN upload completion

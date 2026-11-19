@@ -664,3 +664,74 @@ func TestUploadSampleParsersAllLanguages(t *testing.T) {
 	}
 }
 
+func TestAdminConfigPersistence(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run failed: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	leaseMgr := queue.NewLeaseManager(rdb, 5*time.Minute)
+	filterEngine := harvester.NewFilterEngine(models.DefaultFilterConfig())
+	if filterEngine.GetConfig().Enabled {
+		t.Fatalf("expected harvester Enabled=false by default at startup")
+	}
+
+	harv := harvester.NewHarvester("", filterEngine, leaseMgr, nil)
+	tmpDir := t.TempDir()
+	store := storage.NewAnalyticsStore(filepath.Join(tmpDir, "matches"), "")
+	accStore, err := accounts.NewStore(filepath.Join(tmpDir, "accounts.db"))
+	if err != nil {
+		t.Fatalf("accounts.NewStore failed: %v", err)
+	}
+	defer accStore.Close()
+
+	srv := NewServer(leaseMgr, filterEngine, harv, store, accStore, nil, "")
+	srv.SetAPIKeysPath(filepath.Join(tmpDir, "api_keys.json"))
+
+	// 1. Update filters with Enabled=true -> filter rules should persist, but Enabled must be saved as false.
+	filterBody := `{"enabled":true,"poll_interval_ms":2000,"max_queue_size":10000,"cdn_delay_seconds":180,"allowed_lobby_types":[7,0],"allowed_game_modes":[22],"min_duration_seconds":1200,"max_duration_seconds":7200,"require_10_humans":true,"allowed_regions":["EU","NA"]}`
+	reqF := httptest.NewRequest(http.MethodPut, "/api/v1/admin/filters", bytes.NewBufferString(filterBody))
+	reqF.Header.Set("Content-Type", "application/json")
+	respF, err := srv.App().Test(reqF, -1)
+	if err != nil || respF.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/v1/admin/filters failed: status=%d err=%v", respF.StatusCode, err)
+	}
+
+	loadedFilter, ok := LoadPersistedFilterConfig(filepath.Join(tmpDir, "filter_config.json"))
+	if !ok {
+		t.Fatalf("expected filter_config.json to be persisted")
+	}
+	if loadedFilter.Enabled {
+		t.Fatalf("expected persisted filter_config.json to keep Enabled=false")
+	}
+	if loadedFilter.MinDurationSeconds != 1200 || len(loadedFilter.AllowedLobbyTypes) != 2 {
+		t.Fatalf("unexpected persisted filter config: %+v", loadedFilter)
+	}
+
+	// 2. Update sink and file storage -> both should persist to sink_config.json.
+	reqSink := httptest.NewRequest(http.MethodPut, "/api/v1/admin/sink", bytes.NewBufferString(`{"webhook_url":"https://example.com/hook","webhook_enabled":true}`))
+	reqSink.Header.Set("Content-Type", "application/json")
+	respSink, err := srv.App().Test(reqSink, -1)
+	if err != nil || respSink.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/v1/admin/sink failed: status=%d err=%v", respSink.StatusCode, err)
+	}
+
+	reqFS := httptest.NewRequest(http.MethodPut, "/api/v1/admin/file-storage", bytes.NewBufferString(`{"enabled":false}`))
+	reqFS.Header.Set("Content-Type", "application/json")
+	respFS, err := srv.App().Test(reqFS, -1)
+	if err != nil || respFS.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/v1/admin/file-storage failed: status=%d err=%v", respFS.StatusCode, err)
+	}
+
+	whURL, whEnabled, fsEnabled, ok := LoadPersistedSinkConfig(filepath.Join(tmpDir, "sink_config.json"))
+	if !ok {
+		t.Fatalf("expected sink_config.json to be persisted")
+	}
+	if whURL != "https://example.com/hook" || !whEnabled || fsEnabled {
+		t.Fatalf("unexpected persisted sink config: url=%q wh=%v fs=%v", whURL, whEnabled, fsEnabled)
+	}
+}
+
+
